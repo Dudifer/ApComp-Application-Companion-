@@ -1,0 +1,6 @@
+# Handle text files by default and force them to LF on checkout
+* text=auto eol=lf
+
+# Ensure Windows-specific files stay CRLF if needed
+*.bat text eol=crlf
+*.cmd text eol=crlf

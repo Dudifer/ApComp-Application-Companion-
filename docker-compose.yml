@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: apcomp_user
+      POSTGRES_PASSWORD: apcomp_pass
+      POSTGRES_DB: apcomp_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  
+  judge0:
+    image: judge0/judge0:latest
+    ports:
+      - "2358:2358"
+    privileged: true
+    restart: unless-stopped
+
+volumes:
+  pgdata:
