@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
-import { Job, ContractTime, ContractType } from '@apcomp/types';
-import { AdzunaSearchResponse, AdzunaJob } from '../types/adzuna.types';
+import { Job, ContractTime, ContractType } from '@pkg-types/job';
+import { AdzunaSearchResponse, AdzunaJob } from '@pkg-types/adzuna.types';
 
 const BASE_URL = 'https://api.adzuna.com/v1/api/jobs/us/search/1';
 

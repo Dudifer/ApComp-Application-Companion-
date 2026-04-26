@@ -1,10 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import {
-  Job, ContractTime, ContractType,
-  JobHighlights, JobApplyOption,
-} from '@apcomp/types';
-import { JSearchResponse, JSearchJob } from '../types/jsearch.types';
+  Job, 
+  ContractTime,
+  ContractType,
+  JobHighlights,
+  JobApplyOption,
+} from '@pkg-types/job';
+
+import { JSearchResponse, JSearchJob } from '@pkg-types/jsearch.types';
 
 const BASE_URL = 'https://jsearch.p.rapidapi.com/search';
 
