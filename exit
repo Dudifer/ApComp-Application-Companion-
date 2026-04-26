@@ -1,0 +1,41 @@
+[33mcommit c6276233a5ab835356d205dd3bfc147094ce0b19[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mjobObjectTesting[m[33m, [m[1;31morigin/jobObjectTesting[m[33m)[m
+Author: Jacob Nyberg <90574545+Dudifer@users.noreply.github.com>
+Date:   Sun Apr 26 10:49:47 2026 -0700
+
+    installed tools for later
+
+[33mcommit 7b23cfce095929305a4487b059d1b5927f429eb2[m
+Author: Jacob Nyberg <90574545+Dudifer@users.noreply.github.com>
+Date:   Sun Apr 26 10:21:33 2026 -0700
+
+    implementing resume upload + parsing
+
+[33mcommit 089dd6d640b6e50014c1220a15fbd8ec4f14ad75[m[33m ([m[1;32mresume[m[33m)[m
+Author: Jacob Nyberg <90574545+Dudifer@users.noreply.github.com>
+Date:   Thu Apr 23 12:01:11 2026 -0700
+
+    implemented jsearch and adzuna objects + merging
+
+[33mcommit c2db3a383cf4116627556db2efdd28f40e0c0bfb[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m
+Author: Jacob Nyberg <90574545+Dudifer@users.noreply.github.com>
+Date:   Tue Apr 21 14:03:23 2026 -0700
+
+    setting up job recommendation sourcing
+
+[33mcommit 6968dd9d8ae46b20c9ca5fdce26d2a9c0eff17c7[m
+Author: Jacob Nyberg <90574545+Dudifer@users.noreply.github.com>
+Date:   Tue Apr 21 13:26:47 2026 -0700
+
+    added .gitignore
+
+[33mcommit 7778850f395b402d0ec34abe35a132b7ee4c2b35[m
+Author: Jacob Nyberg <90574545+Dudifer@users.noreply.github.com>
+Date:   Mon Apr 20 11:18:58 2026 -0700
+
+    base homepage setup
+
+[33mcommit 4358ae2099efeb33689233d07be3ddbe274366b1[m
+Author: Jacob Nyberg <90574545+Dudifer@users.noreply.github.com>
+Date:   Mon Apr 20 09:15:54 2026 -0700
+
+    minimalist initial commit
