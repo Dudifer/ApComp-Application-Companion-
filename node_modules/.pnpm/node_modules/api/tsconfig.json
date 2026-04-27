@@ -14,7 +14,7 @@
     "sourceMap": true,
     "rootDir": "../../",
     "outDir": "./dist",
-    "baseUrl": "./",
+    //"baseUrl": "./",
     "paths": {
       "@apcomp": ["../../"],
       "@pkg-types/*": ["../../packages/types/src/*"]
@@ -26,7 +26,7 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false,
-    "ignoreDeprecations": "6.0"
+    "noFallthroughCasesInSwitch": false
+    //"ignoreDeprecations": "6.0"
   }
 }

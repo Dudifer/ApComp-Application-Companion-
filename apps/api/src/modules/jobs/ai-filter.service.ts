@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
-import { Job, DismissedJob } from '@apcomp/types';
+import { Job, DismissedJob } from '@pkg-types/job';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 

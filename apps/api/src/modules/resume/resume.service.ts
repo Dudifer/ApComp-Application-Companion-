@@ -1,5 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { CvProfile, GapAnswerPayload } from '@apcomp/types';
+import { CvProfile, GapAnswerPayload } from '@pkg-types/resume';
 import { PdfParser } from './parsers/pdf.parser';
 import { DocxParser } from './parsers/docx.parser';
 import { AiExtractorService } from './ai-extractor.service';

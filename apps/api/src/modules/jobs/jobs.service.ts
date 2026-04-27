@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Job, DismissedJob, JobFeedWeights } from '@apcomp/types';
+import { Job, DismissedJob, JobFeedWeights } from '@pkg-types/job';
 import { AdzunaProvider } from './providers/adzuna.provider';
 import { JSearchProvider } from './providers/jsearch.provider';
 import { AiFilterService } from './ai-filter.service';

@@ -1,5 +1,17 @@
-import { useState } from "react";
- 
+import { useState } from 'react';
+import type { Job } from '../../../packages/types/src/job';
+import { JobDetailPanel } from './components/JobDetailPanel';
+
+// add state:
+const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+
+// add panel before closing fragment:
+<JobDetailPanel
+  job={selectedJob}
+  onClose={() => setSelectedJob(null)}
+  onDismiss={(j) => console.log('dismiss', j.id)}
+  onSave={(j) => console.log('save', j.id)}
+/> 
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Board", "Practice"];
  
 const PENDING_APPS = [
@@ -495,7 +507,7 @@ export default function App() {
           </div>
           <div className="scroll-row">
             {RECOMMENDED.map((job) => (
-              <div className="rec-card" key={job.company}>
+              <div className="rec-card" key={job.company} onClick={() => setSelectedJob(job)}>
                 <div className="rec-match">{job.match}</div>
                 <div className="rec-company">{job.company}</div>
                 <div className="rec-role">{job.role}</div>
@@ -508,7 +520,7 @@ export default function App() {
                   <button className="apply-btn">Quick Apply</button>
                   <button className="save-btn">Save ♡</button>
                 </div>
-              </div>
+              </div>  
             ))}
           </div>
         </div>

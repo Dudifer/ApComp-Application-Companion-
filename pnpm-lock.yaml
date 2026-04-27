@@ -185,6 +185,8 @@ importers:
         specifier: ^8.0.4
         version: 8.0.8(@types/node@24.12.2)(jiti@2.6.1)(terser@5.46.1)
 
+  packages/types: {}
+
 packages:
 
   '@angular-devkit/core@19.2.24':
