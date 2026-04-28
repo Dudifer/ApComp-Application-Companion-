@@ -5,6 +5,8 @@
     { "path": "./tsconfig.node.json" }
   ],
   "paths": {
-    "@pkg-types/*": ["../../packages/types/src/*"]
+    "@pkg-types/*": ["../../packages/types/src/*"],
+    "@apcomp/types": ["../../packages/types/src"],
+    "@apcomp/types/*": ["../../packages/types/src/*"]
   }
 }

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import Anthropic from '@anthropic-ai/sdk';
-import { CvProfile, GapQuestion, Role, SkillEntry } from '@pkg-types/resume';
+import { CvProfile, GapQuestion, Role, SkillEntry } from '@apcomp/types';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 

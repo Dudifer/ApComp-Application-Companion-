@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ResumeService } from './resume.service';
-import { GapAnswerPayload } from '@pkg-types/resume';
+import { GapAnswerPayload } from '@apcomp/types';
 
 @Controller('resume')
 export class ResumeController {

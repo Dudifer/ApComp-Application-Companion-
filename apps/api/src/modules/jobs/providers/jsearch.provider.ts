@@ -6,9 +6,9 @@ import {
   ContractType,
   JobHighlights,
   JobApplyOption,
-} from '@pkg-types/job';
+} from '@apcomp/types';
 
-import { JSearchResponse, JSearchJob } from '@pkg-types/jsearch.types';
+import { JSearchResponse, JSearchJob } from '@apcomp/types';
 
 const BASE_URL = 'https://jsearch.p.rapidapi.com/search';
 

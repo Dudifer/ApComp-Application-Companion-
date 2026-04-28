@@ -1,17 +1,10 @@
 import { useState } from 'react';
 import type { Job } from '../../../packages/types/src/job';
 import { JobDetailPanel } from './components/JobDetailPanel';
+import ResumePage from './pages/ResumePage';
 
-// add state:
-const [selectedJob, setSelectedJob] = useState<Job | null>(null);
 
-// add panel before closing fragment:
-<JobDetailPanel
-  job={selectedJob}
-  onClose={() => setSelectedJob(null)}
-  onDismiss={(j) => console.log('dismiss', j.id)}
-  onSave={(j) => console.log('save', j.id)}
-/> 
+
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Board", "Practice"];
  
 const PENDING_APPS = [
@@ -41,7 +34,8 @@ const STATUS_COLORS: Record<string, string> = {
  
 export default function App() {
   const [active, setActive] = useState("Dashboard");
- 
+  // add state:
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   return (
     <>
       <style>{`
@@ -459,72 +453,84 @@ export default function App() {
       </nav>
  
       <main>
-        <div className="greeting">Good evening, John.</div>
-        <div className="greeting-sub">Here's where things stand today.</div>
- 
-        <div className="stats-row">
-          {[
-            { num: "24", label: "Total Applications" },
-            { num: "6", label: "Pending Response" },
-            { num: "3", label: "Interviews Scheduled" },
-            { num: "1", label: "Offers Received" },
-          ].map((s) => (
-            <div className="stat-pill" key={s.label}>
-              <div className="stat-num">{s.num}</div>
-              <div className="stat-label">{s.label}</div>
-            </div>
-          ))}
-        </div>
- 
-        <div className="section">
-          <div className="section-header">
-            <div className="section-title">Pending Applications</div>
-            <div className="section-count">{PENDING_APPS.length} active</div>
-            <a className="section-link">View all →</a>
-          </div>
-          <div className="scroll-row">
-            {PENDING_APPS.map((app) => (
-              <div className="app-card" key={app.company}>
-                <div className="app-card-top">
-                  <div className="company-logo">{app.company.slice(0, 2)}</div>
-                  <span className={`status-badge ${STATUS_COLORS[app.status]}`}>
-                    {app.status}
-                  </span>
-                </div>
-                <div className="app-company">{app.company}</div>
-                <div className="app-role">{app.role}</div>
-                <div className="app-date">Applied {app.date}</div>
+        {active === 'Resume Builder' ? (
+          <ResumePage />
+        ) : (
+          <>
+          <div className="greeting">Good evening, John.</div>
+          <div className="greeting-sub">Here's where things stand today.</div>
+  
+          <div className="stats-row">
+            {[
+              { num: "24", label: "Total Applications" },
+              { num: "6", label: "Pending Response" },
+              { num: "3", label: "Interviews Scheduled" },
+              { num: "1", label: "Offers Received" },
+            ].map((s) => (
+              <div className="stat-pill" key={s.label}>
+                <div className="stat-num">{s.num}</div>
+                <div className="stat-label">{s.label}</div>
               </div>
             ))}
           </div>
-        </div>
- 
-        <div className="section">
-          <div className="section-header">
-            <div className="section-title">Recommended Job Postings</div>
-            <div className="section-count">Based on your profile</div>
-            <a className="section-link">View all →</a>
-          </div>
-          <div className="scroll-row">
-            {RECOMMENDED.map((job) => (
-              <div className="rec-card" key={job.company} onClick={() => setSelectedJob(job)}>
-                <div className="rec-match">{job.match}</div>
-                <div className="rec-company">{job.company}</div>
-                <div className="rec-role">{job.role}</div>
-                <div className="tags">
-                  {job.tags.map((t) => (
-                    <span className="tag" key={t}>{t}</span>
-                  ))}
+  
+          <div className="section">
+            <div className="section-header">
+              <div className="section-title">Pending Applications</div>
+              <div className="section-count">{PENDING_APPS.length} active</div>
+              <a className="section-link">View all →</a>
+            </div>
+            <div className="scroll-row">
+              {PENDING_APPS.map((app) => (
+                <div className="app-card" key={app.company}>
+                  <div className="app-card-top">
+                    <div className="company-logo">{app.company.slice(0, 2)}</div>
+                    <span className={`status-badge ${STATUS_COLORS[app.status]}`}>
+                      {app.status}
+                    </span>
+                  </div>
+                  <div className="app-company">{app.company}</div>
+                  <div className="app-role">{app.role}</div>
+                  <div className="app-date">Applied {app.date}</div>
                 </div>
-                <div className="rec-card-footer">
-                  <button className="apply-btn">Quick Apply</button>
-                  <button className="save-btn">Save ♡</button>
-                </div>
-              </div>  
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      </main>
-    </>
+  
+          <div className="section">
+            <div className="section-header">
+              <div className="section-title">Recommended Job Postings</div>
+              <div className="section-count">Based on your profile</div>
+              <a className="section-link">View all →</a>
+            </div>
+            <div className="scroll-row">
+              {RECOMMENDED.map((job) => (
+                <div className="rec-card" key={job.company} onClick={() => setSelectedJob(job)}>
+                  <div className="rec-match">{job.match}</div>
+                  <div className="rec-company">{job.company}</div>
+                  <div className="rec-role">{job.role}</div>
+                  <div className="tags">
+                    {job.tags.map((t) => (
+                      <span className="tag" key={t}>{t}</span>
+                    ))}
+                  </div>
+                  <div className="rec-card-footer">
+                    <button className="apply-btn">Quick Apply</button>
+                    <button className="save-btn">Save ♡</button>
+                  </div>
+                </div>  
+              ))}
+            </div>
+          </div>
+          </>
+      )}
+    </main>
+    <JobDetailPanel
+      job={selectedJob}
+      onClose={() => setSelectedJob(null)}
+      onDismiss={(j) => console.log('dismiss', j.id)}
+      onSave={(j) => console.log('save', j.id)}
+    /> 
+  </>  
   );
 }
