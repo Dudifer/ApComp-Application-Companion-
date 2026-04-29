@@ -3,8 +3,8 @@ import { Job, DismissedJob, JobFeedWeights } from '@apcomp/types';
 import { AdzunaProvider } from './providers/adzuna.provider';
 import { JSearchProvider } from './providers/jsearch.provider';
 import { AiFilterService } from './ai-filter.service';
+import { CompanyEnrichmentService } from './company-enrichment.service';
 
-const DEFAULT_WEIGHTS: JobFeedWeights = { adzuna: 0.5, jsearch: 0.5 };
 const SEARCH_QUERIES = [
   'software engineer',
   'software developer',
@@ -17,20 +17,19 @@ const SEARCH_QUERIES = [
 export class JobsService {
   private readonly logger = new Logger(JobsService.name);
 
-  // In-memory store until DB is wired up
   private dismissals: DismissedJob[] = [];
-  private weights: JobFeedWeights = { ...DEFAULT_WEIGHTS };
+  private weights: JobFeedWeights = { adzuna: 0.5, jsearch: 0.5 };
 
   constructor(
     private readonly adzuna: AdzunaProvider,
     private readonly jsearch: JSearchProvider,
     private readonly aiFilter: AiFilterService,
+    private readonly enrichment: CompanyEnrichmentService,
   ) {}
 
-  async getRecommendedJobs(): Promise<Partial<Job>[]> {
+  async getRecommendedJobs(): Promise<Job[]> {
     const query = SEARCH_QUERIES[0];
 
-    // Fetch from both sources in parallel
     const adzunaCount = Math.round(20 * this.weights.adzuna * 2);
     const jsearchCount = Math.round(2 * this.weights.jsearch * 2);
 
@@ -41,13 +40,16 @@ export class JobsService {
 
     this.logger.log(`Fetched ${adzunaJobs.length} Adzuna + ${jsearchJobs.length} JSearch jobs`);
 
-    // Deduplicate by company + similar title
     const combined = this.deduplicate([...adzunaJobs, ...jsearchJobs]);
 
-    // Run through AI filter
-    const filtered = await this.aiFilter.scoreAndFilter(combined, this.dismissals);
+    // Enrich with company URLs
+    const enriched = await this.enrichment.enrichJobs(combined);
+    this.logger.log(`Enriched ${enriched.length} jobs with company URLs`);
 
+    // AI filter + score
+    const filtered = await this.aiFilter.scoreAndFilter(enriched, this.dismissals);
     this.logger.log(`${filtered.length} jobs after AI filtering`);
+
     return filtered;
   }
 
@@ -72,7 +74,6 @@ export class JobsService {
   }
 
   private updateWeights(dismissedSource: 'adzuna' | 'jsearch') {
-    // Count recent dismissals per source (last 20)
     const recent = this.dismissals.slice(-20);
     const adzunaDismissals = recent.filter(d => d.source === 'adzuna').length;
     const jsearchDismissals = recent.filter(d => d.source === 'jsearch').length;
@@ -80,7 +81,6 @@ export class JobsService {
 
     if (total === 0) return;
 
-    // More dismissals from a source → lower its weight
     const adzunaScore = 1 - (adzunaDismissals / total);
     const jsearchScore = 1 - (jsearchDismissals / total);
     const sum = adzunaScore + jsearchScore;
@@ -93,7 +93,7 @@ export class JobsService {
     this.logger.log(`Updated weights: Adzuna=${this.weights.adzuna} JSearch=${this.weights.jsearch}`);
   }
 
-  private deduplicate(jobs: Partial<Job>[]): Partial<Job>[] {
+  private deduplicate(jobs: Job[]): Job[] {
     const seen = new Set<string>();
     return jobs.filter(job => {
       const key = `${job.company?.toLowerCase()}-${job.title?.toLowerCase().slice(0, 20)}`;

@@ -1,9 +1,13 @@
-import { Controller, Get, Post, Body } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query } from '@nestjs/common';
 import { JobsService } from './jobs.service';
+import { ContactFinderService } from './contact-finder.service';
 
 @Controller('jobs')
 export class JobsController {
-  constructor(private readonly jobsService: JobsService) {}
+  constructor(
+    private readonly jobsService: JobsService,
+    private readonly contactFinder: ContactFinderService,
+  ) {}
 
   @Get('recommended')
   getRecommended() {
@@ -32,5 +36,13 @@ export class JobsController {
       body.title,
       body.reason,
     );
+  }
+
+  @Get('contacts')
+  findContacts(
+    @Query('company') company: string,
+    @Query('domain') domain: string,
+  ) {
+    return this.contactFinder.findContacts(company, domain);
   }
 }
