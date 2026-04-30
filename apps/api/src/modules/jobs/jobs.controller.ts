@@ -14,6 +14,11 @@ export class JobsController {
     return this.jobsService.getRecommendedJobs();
   }
 
+  @Post('refresh')
+  refreshJobs() {
+    return this.jobsService.refreshJobs();
+  }
+
   @Get('weights')
   getWeights() {
     return this.jobsService.getWeights();

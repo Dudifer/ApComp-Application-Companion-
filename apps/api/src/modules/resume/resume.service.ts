@@ -3,23 +3,34 @@ import { CvProfile, GapAnswerPayload } from '@apcomp/types';
 import { PdfParser } from './parsers/pdf.parser';
 import { DocxParser } from './parsers/docx.parser';
 import { AiExtractorService } from './ai-extractor.service';
+import { PrismaService } from '../prisma/prisma.service';
+
+const DEV_USER_ID = 'dev-user';
 
 @Injectable()
 export class ResumeService {
   private readonly logger = new Logger(ResumeService.name);
 
-  // In-memory store per session until auth + DB are wired up
-  private profileStore: CvProfile | null = null;
-
   constructor(
     private readonly pdfParser: PdfParser,
     private readonly docxParser: DocxParser,
     private readonly aiExtractor: AiExtractorService,
+    private readonly prisma: PrismaService,
   ) {}
 
-  async processUpload(
-    file: Express.Multer.File,
-  ): Promise<CvProfile> {
+  private async ensureDevUser() {
+    return this.prisma.user.upsert({
+      where: { id: DEV_USER_ID },
+      update: {},
+      create: {
+        id: DEV_USER_ID,
+        email: 'dev@apcomp.local',
+        name: 'Dev User',
+      },
+    });
+  }
+
+  async processUpload(file: Express.Multer.File): Promise<CvProfile> {
     const mime = file.mimetype;
     let rawText: string;
 
@@ -42,25 +53,67 @@ export class ResumeService {
 
     this.logger.log(`Extracted ${rawText.length} characters from CV`);
     const profile = await this.aiExtractor.extractProfile(rawText);
-    this.profileStore = profile;
+
+    await this.ensureDevUser();
+    await this.saveProfile(profile);
+
     return profile;
   }
 
   async submitGapAnswers(answers: GapAnswerPayload[]): Promise<CvProfile> {
-    if (!this.profileStore) {
+    const profile = await this.getProfile();
+    if (!profile) {
       throw new BadRequestException('No profile found. Please upload your CV first.');
     }
 
-    const refined = await this.aiExtractor.refineProfileWithAnswers(
-      this.profileStore,
-      answers,
-    );
-
-    this.profileStore = refined;
+    const refined = await this.aiExtractor.refineProfileWithAnswers(profile, answers);
+    await this.saveProfile(refined);
     return refined;
   }
 
-  getProfile(): CvProfile | null {
-    return this.profileStore;
+  async getProfile(): Promise<CvProfile | null> {
+    const row = await this.prisma.cvProfile.findUnique({
+      where: { userId: DEV_USER_ID },
+    });
+
+    if (!row) return null;
+
+    return {
+      name: row.name ?? undefined,
+      email: row.email ?? undefined,
+      rawText: row.rawText ?? undefined,
+      roles: row.roles as CvProfile['roles'],
+      skills: row.skills as CvProfile['skills'],
+      practices: row.practices as string[],
+      gapQuestions: row.gapQuestions as CvProfile['gapQuestions'],
+      isComplete: row.isComplete,
+    };
+  }
+
+  private async saveProfile(profile: CvProfile) {
+    await this.prisma.cvProfile.upsert({
+      where: { userId: DEV_USER_ID },
+      update: {
+        name: profile.name,
+        email: profile.email,
+        rawText: profile.rawText,
+        roles: profile.roles as any,
+        skills: profile.skills as any,
+        practices: profile.practices as any,
+        gapQuestions: profile.gapQuestions as any,
+        isComplete: profile.isComplete,
+      },
+      create: {
+        userId: DEV_USER_ID,
+        name: profile.name,
+        email: profile.email,
+        rawText: profile.rawText,
+        roles: profile.roles as any,
+        skills: profile.skills as any,
+        practices: profile.practices as any,
+        gapQuestions: profile.gapQuestions as any,
+        isComplete: profile.isComplete,
+      },
+    });
   }
 }

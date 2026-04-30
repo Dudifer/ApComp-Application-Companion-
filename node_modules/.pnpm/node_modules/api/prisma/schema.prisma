@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client-js"
   output   = "../generated/prisma"
@@ -10,4 +5,129 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  cvProfile      CvProfile?
+  applications   Application[]
+  savedJobs      SavedJob[]
+  dismissedJobs  DismissedJob[]
+  jobFeedWeights JobFeedWeights?
+
+  @@map("users")
+}
+
+model CvProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name      String?
+  email     String?
+  rawText   String?  @db.Text
+  
+  // Store structured data as JSON
+  roles         Json @default("[]")
+  skills        Json @default("[]")
+  practices     Json @default("[]")
+  gapQuestions  Json @default("[]")
+  isComplete    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("cv_profiles")
+}
+
+model Application {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  company   String
+  role      String
+  status    ApplicationStatus @default(APPLIED)
+  
+  // Optional links
+  jobUrl        String?
+  jobExternalId String?
+  jobSource     String?   // 'adzuna' | 'jsearch'
+  
+  // Email tracking
+  lastEmailSubject String?
+  lastEmailDate    DateTime?
+  
+  appliedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("applications")
+}
+
+model SavedJob {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  externalId  String
+  source      String   // 'adzuna' | 'jsearch'
+  
+  // Full job details as JSON
+  jobData     Json
+  
+  // Expiry — refresh after 7 days
+  fetchedAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  savedAt     DateTime @default(now())
+
+  @@unique([userId, externalId, source])
+  @@map("saved_jobs")
+}
+
+model DismissedJob {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  jobId     String
+  source    String
+  company   String
+  title     String
+  reason    String?
+
+  dismissedAt DateTime @default(now())
+
+  @@map("dismissed_jobs")
+}
+
+model JobFeedWeights {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  adzuna    Float    @default(0.5)
+  jsearch   Float    @default(0.5)
+
+  updatedAt DateTime @updatedAt
+
+  @@map("job_feed_weights")
+}
+
+enum ApplicationStatus {
+  APPLIED
+  PHONE_SCREEN
+  TECHNICAL
+  FINAL_ROUND
+  OFFER
+  REJECTED
+  WITHDRAWN
+  UNKNOWN
 }
