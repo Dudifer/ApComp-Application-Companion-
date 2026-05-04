@@ -2,8 +2,8 @@ import { useState } from 'react';
 import type { Job } from '../../../packages/types/src/job';
 import { JobDetailPanel } from './components/JobDetailPanel';
 import ResumePage from './pages/ResumePage';
-
-
+import { useApplications, STATUS_CONFIG } from './hooks/useApplications';
+import AllApplicationsPage from './pages/AllApplicationsPage';
 
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Board", "Practice"];
  
@@ -34,6 +34,8 @@ const STATUS_COLORS: Record<string, string> = {
  
 export default function App() {
   const [active, setActive] = useState("Dashboard");
+
+  const { applications, loading, gmailConnected, connectGmail } = useApplications();
   // add state:
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   return (
@@ -319,7 +321,8 @@ export default function App() {
         .status-phone { background: var(--blue-light); color: var(--blue); }
         .status-tech { background: var(--amber-light); color: var(--amber); }
         .status-offer { background: var(--green-light); color: var(--green); }
- 
+        .status-rejected { background: #fef2f2; color: #991b1b; }
+
         .app-company {
           font-family: var(--font-display);
           font-size: 15px;
@@ -453,77 +456,88 @@ export default function App() {
       </nav>
  
       <main>
-        {active === 'Resume Builder' ? (
+        {active === 'Applications' ? (
+          <AllApplicationsPage />
+        ) : active === 'Resume Builder' ? (
           <ResumePage />
         ) : (
           <>
-          <div className="greeting">Good evening, John.</div>
-          <div className="greeting-sub">Here's where things stand today.</div>
-  
-          <div className="stats-row">
-            {[
-              { num: "24", label: "Total Applications" },
-              { num: "6", label: "Pending Response" },
-              { num: "3", label: "Interviews Scheduled" },
-              { num: "1", label: "Offers Received" },
-            ].map((s) => (
-              <div className="stat-pill" key={s.label}>
-                <div className="stat-num">{s.num}</div>
-                <div className="stat-label">{s.label}</div>
-              </div>
-            ))}
-          </div>
-  
-          <div className="section">
-            <div className="section-header">
-              <div className="section-title">Pending Applications</div>
-              <div className="section-count">{PENDING_APPS.length} active</div>
-              <a className="section-link">View all →</a>
-            </div>
-            <div className="scroll-row">
-              {PENDING_APPS.map((app) => (
-                <div className="app-card" key={app.company}>
-                  <div className="app-card-top">
-                    <div className="company-logo">{app.company.slice(0, 2)}</div>
-                    <span className={`status-badge ${STATUS_COLORS[app.status]}`}>
-                      {app.status}
-                    </span>
-                  </div>
-                  <div className="app-company">{app.company}</div>
-                  <div className="app-role">{app.role}</div>
-                  <div className="app-date">Applied {app.date}</div>
+            <div className="greeting">Good evening, John.</div>
+            <div className="greeting-sub">Here's where things stand today.</div>
+
+            <div className="stats-row">
+              {[
+                { num: String(applications.length), label: "Total Applications" },
+                { num: String(applications.filter(a => ['SUBMITTED','APPLIED','VIEWED'].includes(a.status)).length), label: "Pending Response" },
+                { num: String(applications.filter(a => a.status === 'INTERVIEW').length), label: "Interviews Scheduled" },
+                { num: String(applications.filter(a => a.status === 'OFFER').length), label: "Offers Received" },
+              ].map((s) => (
+                <div className="stat-pill" key={s.label}>
+                  <div className="stat-num">{s.num}</div>
+                  <div className="stat-label">{s.label}</div>
                 </div>
               ))}
             </div>
-          </div>
-  
-          <div className="section">
-            <div className="section-header">
-              <div className="section-title">Recommended Job Postings</div>
-              <div className="section-count">Based on your profile</div>
-              <a className="section-link">View all →</a>
-            </div>
-            <div className="scroll-row">
-              {RECOMMENDED.map((job) => (
-                <div className="rec-card" key={job.company} onClick={() => setSelectedJob(job)}>
-                  <div className="rec-match">{job.match}</div>
-                  <div className="rec-company">{job.company}</div>
-                  <div className="rec-role">{job.role}</div>
-                  <div className="tags">
-                    {job.tags.map((t) => (
-                      <span className="tag" key={t}>{t}</span>
-                    ))}
+
+            <div className="section">
+              <div className="section-header">
+                <div className="section-title">Pending Applications</div>
+                <div className="section-count">{applications.length} active</div>
+                {!gmailConnected && (
+                  <button onClick={connectGmail} style={{
+                    fontSize: 12, padding: '4px 12px', borderRadius: 8,
+                    background: 'var(--ink)', color: 'white', border: 'none',
+                    cursor: 'pointer', fontFamily: 'var(--font-body)',
+                  }}>
+                    Connect Gmail
+                  </button>
+                )}
+                <a className="section-link" onClick={() => setActive('Applications')}>View all →</a>
+              </div>
+              <div className="scroll-row">
+                {applications.map((app) => (
+                  <div className="app-card" key={app.id}>
+                    <div className="app-card-top">
+                      <div className="company-logo">{app.company.slice(0, 2)}</div>
+                      <span className={`status-badge ${STATUS_CONFIG[app.status]?.colorClass ?? 'status-applied'}`}>
+                        {STATUS_CONFIG[app.status]?.label ?? app.status}
+                      </span>
+                    </div>
+                    <div className="app-company">{app.company}</div>
+                    <div className="app-role">{app.position ?? 'Unknown Position'}</div>
+                    <div className="app-date">Applied {new Date(app.appliedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
                   </div>
-                  <div className="rec-card-footer">
-                    <button className="apply-btn">Quick Apply</button>
-                    <button className="save-btn">Save ♡</button>
-                  </div>
-                </div>  
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+
+            <div className="section">
+              <div className="section-header">
+                <div className="section-title">Recommended Job Postings</div>
+                <div className="section-count">Based on your profile</div>
+                <a className="section-link">View all →</a>
+              </div>
+              <div className="scroll-row">
+                {RECOMMENDED.map((job) => (
+                  <div className="rec-card" key={job.company} onClick={() => setSelectedJob(job)}>
+                    <div className="rec-match">{job.match}</div>
+                    <div className="rec-company">{job.company}</div>
+                    <div className="rec-role">{job.role}</div>
+                    <div className="tags">
+                      {job.tags.map((t) => (
+                        <span className="tag" key={t}>{t}</span>
+                      ))}
+                    </div>
+                    <div className="rec-card-footer">
+                      <button className="apply-btn">Quick Apply</button>
+                      <button className="save-btn">Save ♡</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </>
-      )}
+        )}
     </main>
     <JobDetailPanel
       job={selectedJob}

@@ -6,6 +6,7 @@ import { JSearchProvider } from './providers/jsearch.provider';
 import { AiFilterService } from './ai-filter.service';
 import { CompanyEnrichmentService } from './company-enrichment.service';
 import { ContactFinderService } from './contact-finder.service';
+import { JobCacheService } from './job-cache.service';
 
 @Module({
   controllers: [JobsController],
@@ -16,7 +17,9 @@ import { ContactFinderService } from './contact-finder.service';
     AiFilterService,
     CompanyEnrichmentService,
     ContactFinderService,
+    JobCacheService,
   ],
   exports: [JobsService],
 })
 export class JobsModule {}
+ 

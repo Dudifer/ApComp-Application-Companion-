@@ -24,6 +24,11 @@ export class JobsController {
     return this.jobsService.getWeights();
   }
 
+  @Get('cache-info')
+  getCacheInfo() {
+    return this.jobsService.getCacheInfo();
+  }
+
   @Post('dismiss')
   dismissJob(
     @Body() body: {

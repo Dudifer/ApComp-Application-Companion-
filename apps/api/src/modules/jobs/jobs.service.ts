@@ -4,6 +4,7 @@ import { AdzunaProvider } from './providers/adzuna.provider';
 import { JSearchProvider } from './providers/jsearch.provider';
 import { AiFilterService } from './ai-filter.service';
 import { CompanyEnrichmentService } from './company-enrichment.service';
+import { JobCacheService } from './job-cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const SEARCH_QUERIES = [
@@ -14,7 +15,6 @@ const SEARCH_QUERIES = [
   'frontend engineer',
 ];
 
-// Temporary dev user ID until auth is implemented
 const DEV_USER_ID = 'dev-user';
 
 @Injectable()
@@ -26,6 +26,7 @@ export class JobsService {
     private readonly jsearch: JSearchProvider,
     private readonly aiFilter: AiFilterService,
     private readonly enrichment: CompanyEnrichmentService,
+    private readonly jobCache: JobCacheService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -44,12 +45,9 @@ export class JobsService {
   async getRecommendedJobs(): Promise<Job[]> {
     await this.ensureDevUser();
 
-    // Check for non-expired saved jobs first
+    // 1. Check DB for non-expired saved jobs
     const saved = await this.prisma.savedJob.findMany({
-      where: {
-        userId: DEV_USER_ID,
-        expiresAt: { gt: new Date() },
-      },
+      where: { userId: DEV_USER_ID, expiresAt: { gt: new Date() } },
     });
 
     if (saved.length > 0) {
@@ -57,30 +55,65 @@ export class JobsService {
       return saved.map(s => s.jobData as unknown as Job);
     }
 
-    // Fetch fresh jobs
-    const query = SEARCH_QUERIES[0];
+    // 2. Check disk cache as fallback
+    const diskCached = this.jobCache.loadRawJobs();
+    if (diskCached) {
+      this.logger.log(`Returning ${diskCached.length} jobs from disk cache — attempting to save to DB`);
+      await this.saveJobsToDB(diskCached).catch(err =>
+        this.logger.warn('Could not save disk cache to DB:', err)
+      );
+      return diskCached;
+    }
+
+    // 3. Fetch fresh from APIs
+    return this.fetchAndProcess();
+  }
+
+  private async fetchAndProcess(): Promise<Job[]> {
     const weights = await this.getWeights();
     const adzunaCount = Math.round(20 * weights.adzuna * 2);
     const jsearchCount = Math.round(2 * weights.jsearch * 2);
 
     const [adzunaJobs, jsearchJobs] = await Promise.all([
-      this.adzuna.fetchJobs(query, adzunaCount),
-      this.jsearch.fetchJobs(query, jsearchCount),
+      this.adzuna.fetchJobs(SEARCH_QUERIES[0], adzunaCount),
+      this.jsearch.fetchJobs(SEARCH_QUERIES[0], jsearchCount),
     ]);
 
     this.logger.log(`Fetched ${adzunaJobs.length} Adzuna + ${jsearchJobs.length} JSearch jobs`);
 
     const combined = this.deduplicate([...adzunaJobs, ...jsearchJobs]);
+
+    // ✅ Save raw jobs to disk IMMEDIATELY before any processing that could fail
+    this.jobCache.saveRawJobs(combined);
+
+    // Enrichment (Clearbit lookups — could fail for some)
     const enriched = await this.enrichment.enrichJobs(combined);
+
+    // Update disk cache with enriched data
+    this.jobCache.saveRawJobs(enriched);
+
+    // AI filter + score
     const dismissals = await this.getDismissals();
     const filtered = await this.aiFilter.scoreAndFilter(enriched, dismissals);
 
     this.logger.log(`${filtered.length} jobs after AI filtering`);
 
-    // Save to DB with 7 day expiry
+    // Update disk cache with final filtered data
+    this.jobCache.saveRawJobs(filtered);
+
+    // Save to DB
+    await this.saveJobsToDB(filtered);
+
+    // Clear disk cache since DB now has the data
+    this.jobCache.clearCache();
+
+    return filtered;
+  }
+
+  private async saveJobsToDB(jobs: Job[]): Promise<void> {
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
     await this.prisma.$transaction(
-      filtered.map(job =>
+      jobs.map(job =>
         this.prisma.savedJob.upsert({
           where: {
             userId_externalId_source: {
@@ -100,25 +133,16 @@ export class JobsService {
         })
       )
     );
-
-    return filtered;
+    this.logger.log(`Saved ${jobs.length} jobs to DB`);
   }
 
   async dismissJob(jobId: string, source: string, company: string, title: string, reason?: string) {
     await this.ensureDevUser();
 
     await this.prisma.dismissedJob.create({
-      data: {
-        userId: DEV_USER_ID,
-        jobId,
-        source,
-        company,
-        title,
-        reason,
-      },
+      data: { userId: DEV_USER_ID, jobId, source, company, title, reason },
     });
 
-    // Remove from saved jobs
     await this.prisma.savedJob.deleteMany({
       where: { userId: DEV_USER_ID, externalId: jobId, source },
     });
@@ -136,9 +160,13 @@ export class JobsService {
   }
 
   async refreshJobs(): Promise<Job[]> {
-    // Delete cached jobs and re-fetch
     await this.prisma.savedJob.deleteMany({ where: { userId: DEV_USER_ID } });
-    return this.getRecommendedJobs();
+    this.jobCache.clearCache();
+    return this.fetchAndProcess();
+  }
+
+  getCacheInfo() {
+    return this.jobCache.getCacheInfo();
   }
 
   private async getDismissals(): Promise<DismissedJob[]> {
@@ -167,20 +195,23 @@ export class JobsService {
     const adzunaDismissals = recent.filter(d => d.source === 'adzuna').length;
     const jsearchDismissals = recent.filter(d => d.source === 'jsearch').length;
     const total = adzunaDismissals + jsearchDismissals;
-
     if (total === 0) return;
 
     const adzunaScore = 1 - (adzunaDismissals / total);
     const jsearchScore = 1 - (jsearchDismissals / total);
     const sum = adzunaScore + jsearchScore;
 
-    const adzuna = parseFloat((adzunaScore / sum).toFixed(2));
-    const jsearch = parseFloat((jsearchScore / sum).toFixed(2));
-
     await this.prisma.jobFeedWeights.upsert({
       where: { userId: DEV_USER_ID },
-      update: { adzuna, jsearch },
-      create: { userId: DEV_USER_ID, adzuna, jsearch },
+      update: {
+        adzuna: parseFloat((adzunaScore / sum).toFixed(2)),
+        jsearch: parseFloat((jsearchScore / sum).toFixed(2)),
+      },
+      create: {
+        userId: DEV_USER_ID,
+        adzuna: parseFloat((adzunaScore / sum).toFixed(2)),
+        jsearch: parseFloat((jsearchScore / sum).toFixed(2)),
+      },
     });
   }
 

@@ -123,8 +123,12 @@ model JobFeedWeights {
 
 enum ApplicationStatus {
   APPLIED
+  SUBMITTED
+  VIEWED
+  ASSESSMENT
   PHONE_SCREEN
   TECHNICAL
+  INTERVIEW
   FINAL_ROUND
   OFFER
   REJECTED
