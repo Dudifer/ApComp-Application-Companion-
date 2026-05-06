@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import type { Job } from '../../../packages/types/src/job';
 import { JobDetailPanel } from './components/JobDetailPanel';
-import ResumePage from './pages/ResumePage';
 import { useApplications, STATUS_CONFIG } from './hooks/useApplications';
 import AllApplicationsPage from './pages/AllApplicationsPage';
+import ResumeBuilderPage from './pages/ResumeBuilderPage';
 
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Board", "Practice"];
  
@@ -455,11 +455,11 @@ export default function App() {
         </div>
       </nav>
  
-      <main>
+      <main style={{ padding: active === 'Resume Builder' ? 0 : undefined }}>
         {active === 'Applications' ? (
           <AllApplicationsPage />
         ) : active === 'Resume Builder' ? (
-          <ResumePage />
+          <ResumeBuilderPage />
         ) : (
           <>
             <div className="greeting">Good evening, John.</div>
@@ -538,7 +538,7 @@ export default function App() {
             </div>
           </>
         )}
-    </main>
+      </main>
     <JobDetailPanel
       job={selectedJob}
       onClose={() => setSelectedJob(null)}
