@@ -57,7 +57,7 @@ Gap question rules:
 - Ask about specific libraries if a language is mentioned without context (e.g. "Python" → ask data science vs web vs scripting)
 - Ask about testing practices if not mentioned
 - Ask about database/infrastructure if not mentioned for backend roles
-- Group multiple questions per company — max 3 questions per company
+- Group multiple questions per company — max 5 questions per company
 - Use "multiselect" for tech choices (provide 6-10 options), "text" for open-ended, "scale" for proficiency (options: ["1","2","3","4","5"])
 - Only generate gap questions for roles that genuinely lack technical detail
 
