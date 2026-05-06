@@ -24,6 +24,7 @@ interface JobDetailPanelProps {
   onClose: () => void;
   onDismiss: (job: Job) => void;
   onSave: (job: Job) => void;
+  onTailor: (job: Job) => void;  // ← add this
 }
 
 function formatSalary(job: Job): string {
@@ -301,6 +302,17 @@ export function JobDetailPanel({ job, onClose, onDismiss, onSave }: JobDetailPan
                   }}
                 >
                   🔍 Find contact at {job.company}
+                </button>
+                <button
+                  onClick={() => { onTailor(job); onClose(); }}
+                  style={{
+                    padding: '11px 18px', background: 'var(--accent-light)',
+                    border: '1px solid var(--accent)', borderRadius: 8,
+                    fontSize: 13, color: 'var(--accent)', cursor: 'pointer',
+                    fontFamily: 'var(--font-body)', fontWeight: 500,
+                  }}
+                >
+                  ✦ Tailor resume
                 </button>
                 {contactError && (
                   <p style={{ fontSize: 12, color: 'var(--accent)', marginTop: 8 }}>{contactError}</p>

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { CvProfile, Role, SkillEntry } from '@apcomp/types';
+import type { Job } from '@apcomp/types';
+import { tailorResumeForJob, type TailoringResult } from './resumeTailor';
 
 const API = 'http://localhost:3000';
 
@@ -65,17 +67,23 @@ function parseContactLine(rawText: string): Partial<ResumeHeader> {
   const email = rawText.match(/[\w.]+@[\w.]+\.\w+/)?.[0] ?? '';
   const linkedin = rawText.match(/linkedin\.com\/in\/([\w-]+)/)?.[1] ?? '';
   const github = rawText.match(/github\.com\/([\w-]+)/)?.[1] ?? '';
-  return { phone, email, linkedin: linkedin ? `linkedin.com/in/${linkedin}` : '', github: github ? `github.com/${github}` : '' };
+  return {
+    phone,
+    email,
+    linkedin: linkedin ? `linkedin.com/in/${linkedin}` : '',
+    github: github ? `github.com/${github}` : '',
+  };
 }
 
 function roleToBullets(role: Role): EditableBullet[] {
-  // Split description into bullet points
   const lines = role.description
     .split(/[•\n]/)
     .map(l => l.trim())
     .filter(l => l.length > 10);
 
-  if (lines.length === 0) return [{ id: `b-${Math.random()}`, text: role.description, active: true }];
+  if (lines.length === 0) {
+    return [{ id: `b-${Math.random()}`, text: role.description, active: true }];
+  }
 
   return lines.map((text, i) => ({
     id: `b-${role.company}-${i}`,
@@ -84,20 +92,87 @@ function roleToBullets(role: Role): EditableBullet[] {
   }));
 }
 
-function formatDateRange(start: string, end?: string): string {
-  const fmt = (d: string) => {
-    const [y, m] = d.split('-');
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return `${months[parseInt(m) - 1]} ${y}`;
+function buildInitialState(p: CvProfile): ResumeState {
+  const contact = parseContactLine(p.rawText ?? '');
+
+  const experience: ResumeExperience[] = p.roles.map((role, i) => ({
+    id: `exp-${i}`,
+    active: true,
+    company: role.company,
+    title: role.title,
+    startDate: role.startDate,
+    endDate: role.endDate,
+    bullets: roleToBullets(role),
+  }));
+
+  const projectsMatch = p.rawText?.match(/Personal Projects([\s\S]*?)(?:Technical Skills|$)/i);
+  const projectLines = projectsMatch
+    ? projectsMatch[1].split(/[•\n]/).map(l => l.trim()).filter(l => l.length > 10)
+    : [];
+
+  const projects: ResumeProject[] = projectLines.map((text, i) => ({
+    id: `proj-${i}`,
+    active: true,
+    text,
+  }));
+
+  const byCategory: Record<string, SkillEntry[]> = {};
+  p.skills.forEach(s => {
+    (byCategory[s.category] = byCategory[s.category] ?? []).push(s);
+  });
+
+  const skillGroups: ResumeSkillGroup[] = Object.entries(byCategory).map(([cat, skills], i) => ({
+    id: `sg-${i}`,
+    active: true,
+    label: cat.charAt(0).toUpperCase() + cat.slice(1) + 's',
+    skills: skills.map(s => s.name).join(', '),
+  }));
+
+  if (skillGroups.length === 0 && p.rawText) {
+    const primaryMatch = p.rawText.match(/Primary Languages?:\s*([^\n]+)/i);
+    const frameworkMatch = p.rawText.match(/Frameworks? and Libraries?:\s*([^\n]+)/i);
+    if (primaryMatch) skillGroups.push({ id: 'sg-0', active: true, label: 'Primary Languages', skills: primaryMatch[1].trim() });
+    if (frameworkMatch) skillGroups.push({ id: 'sg-1', active: true, label: 'Frameworks and Libraries', skills: frameworkMatch[1].trim() });
+  }
+
+  const eduMatch = p.rawText?.match(/University of Iowa[^\n]*\n([^\n]+)\n([^\n]+)/);
+  const education: ResumeEducation[] = [{
+    id: 'edu-0',
+    active: true,
+    institution: 'University of Iowa',
+    location: 'Iowa City, USA',
+    degree: eduMatch?.[1]?.trim() ?? 'Computer Science (BA)',
+    dates: eduMatch?.[2]?.trim() ?? '',
+  }];
+
+  const aboutMatch = p.rawText?.match(/About Me\n([\s\S]*?)(?:Work Experience|$)/i);
+  const aboutMe = aboutMatch?.[1]?.trim() ?? '';
+
+  return {
+    header: {
+      name: p.name ?? 'Your Name',
+      title: 'Software Developer',
+      phone: contact.phone ?? '',
+      email: contact.email ?? p.email ?? '',
+      linkedin: contact.linkedin ?? '',
+      github: contact.github ?? '',
+    },
+    aboutMe,
+    education,
+    experience,
+    projects,
+    skillGroups,
   };
-  return `${fmt(start)} - ${end ? fmt(end) : 'Present'}`;
 }
 
-export function useResumeBuilder() {
+export function useResumeBuilder(initialJob?: Job | null) {
   const [profile, setProfile] = useState<CvProfile | null>(null);
+  const [baseState, setBaseState] = useState<ResumeState | null>(null);
   const [state, setState] = useState<ResumeState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tailoringResult, setTailoringResult] = useState<TailoringResult | null>(null);
+  const [activeJob, setActiveJob] = useState<Job | null>(initialJob ?? null);
 
   useEffect(() => {
     fetch(`${API}/resume/profile`)
@@ -105,89 +180,39 @@ export function useResumeBuilder() {
       .then((p: CvProfile) => {
         if (!p) { setLoading(false); return; }
         setProfile(p);
-        setState(buildInitialState(p));
+        const initial = buildInitialState(p);
+        setBaseState(initial);
+
+        // If a job was passed in, tailor immediately
+        if (initialJob) {
+          const result = tailorResumeForJob(initial, initialJob);
+          setState(result.state);
+          setTailoringResult(result);
+        } else {
+          setState(initial);
+        }
         setLoading(false);
       })
-      .catch(() => { setError('Could not load profile. Please upload your CV first.'); setLoading(false); });
+      .catch(() => {
+        setError('Could not load profile. Please upload your CV first.');
+        setLoading(false);
+      });
   }, []);
 
-  const buildInitialState = useCallback((p: CvProfile): ResumeState => {
-    const contact = parseContactLine(p.rawText ?? '');
+  const tailorForJob = useCallback((job: Job) => {
+    if (!baseState) return;
+    setActiveJob(job);
+    const result = tailorResumeForJob(baseState, job);
+    setState(result.state);
+    setTailoringResult(result);
+  }, [baseState]);
 
-    const experience: ResumeExperience[] = p.roles.map((role, i) => ({
-      id: `exp-${i}`,
-      active: true,
-      company: role.company,
-      title: role.title,
-      startDate: role.startDate,
-      endDate: role.endDate,
-      bullets: roleToBullets(role),
-    }));
-
-    // Extract projects from rawText — look for Personal Projects section
-    const projectsMatch = p.rawText?.match(/Personal Projects([\s\S]*?)(?:Technical Skills|$)/i);
-    const projectLines = projectsMatch
-      ? projectsMatch[1].split(/[•\n]/).map(l => l.trim()).filter(l => l.length > 10)
-      : [];
-
-    const projects: ResumeProject[] = projectLines.map((text, i) => ({
-      id: `proj-${i}`,
-      active: true,
-      text,
-    }));
-
-    // Group skills by category
-    const byCategory: Record<string, SkillEntry[]> = {};
-    p.skills.forEach(s => {
-      (byCategory[s.category] = byCategory[s.category] ?? []).push(s);
-    });
-
-    const skillGroups: ResumeSkillGroup[] = Object.entries(byCategory).map(([cat, skills], i) => ({
-      id: `sg-${i}`,
-      active: true,
-      label: cat.charAt(0).toUpperCase() + cat.slice(1) + 's',
-      skills: skills.map(s => s.name).join(', '),
-    }));
-
-    // If no skill groups extracted, try parsing from rawText
-    if (skillGroups.length === 0 && p.rawText) {
-      const primaryMatch = p.rawText.match(/Primary Languages?:\s*([^\n]+)/i);
-      const frameworkMatch = p.rawText.match(/Frameworks? and Libraries?:\s*([^\n]+)/i);
-      if (primaryMatch) skillGroups.push({ id: 'sg-0', active: true, label: 'Primary Languages', skills: primaryMatch[1].trim() });
-      if (frameworkMatch) skillGroups.push({ id: 'sg-1', active: true, label: 'Frameworks and Libraries', skills: frameworkMatch[1].trim() });
-    }
-
-    // Extract education from rawText
-    const eduMatch = p.rawText?.match(/University of Iowa[^\n]*\n([^\n]+)\n([^\n]+)/);
-    const education: ResumeEducation[] = [{
-      id: 'edu-0',
-      active: true,
-      institution: 'University of Iowa',
-      location: 'Iowa City, USA',
-      degree: eduMatch?.[1]?.trim() ?? 'Computer Science (BA)',
-      dates: eduMatch?.[2]?.trim() ?? '',
-    }];
-
-    // Extract about me
-    const aboutMatch = p.rawText?.match(/About Me\n([\s\S]*?)(?:Work Experience|$)/i);
-    const aboutMe = aboutMatch?.[1]?.trim() ?? '';
-
-    return {
-      header: {
-        name: p.name ?? 'Your Name',
-        title: 'Software Developer',
-        phone: contact.phone ?? '',
-        email: contact.email ?? p.email ?? '',
-        linkedin: contact.linkedin ?? '',
-        github: contact.github ?? '',
-      },
-      aboutMe,
-      education,
-      experience,
-      projects,
-      skillGroups,
-    };
-  }, []);
+  const resetToFull = useCallback(() => {
+    if (!baseState) return;
+    setActiveJob(null);
+    setState(baseState);
+    setTailoringResult(null);
+  }, [baseState]);
 
   // Updaters
   const updateHeader = useCallback((field: keyof ResumeHeader, value: string) => {
@@ -278,7 +303,10 @@ export function useResumeBuilder() {
     state,
     loading,
     error,
-    formatDateRange,
+    tailoringResult,
+    activeJob,
+    tailorForJob,
+    resetToFull,
     updateHeader,
     updateAboutMe,
     toggleExperience,

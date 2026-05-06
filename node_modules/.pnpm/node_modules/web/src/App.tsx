@@ -7,6 +7,8 @@ import ResumeBuilderPage from './pages/ResumeBuilderPage';
 
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Board", "Practice"];
  
+const [tailorJob, setTailorJob] = useState<Job | null>(null);
+
 const PENDING_APPS = [
   { company: "Stripe", role: "Software Engineer II", date: "Apr 17", status: "Applied" },
   { company: "Vercel", role: "Frontend Engineer", date: "Apr 15", status: "Phone Screen" },
@@ -459,7 +461,7 @@ export default function App() {
         {active === 'Applications' ? (
           <AllApplicationsPage />
         ) : active === 'Resume Builder' ? (
-          <ResumeBuilderPage />
+          <ResumeBuilderPage initialJob={tailorJob} />
         ) : (
           <>
             <div className="greeting">Good evening, John.</div>
@@ -544,7 +546,8 @@ export default function App() {
       onClose={() => setSelectedJob(null)}
       onDismiss={(j) => console.log('dismiss', j.id)}
       onSave={(j) => console.log('save', j.id)}
-    /> 
+      onTailor={(j) => { setTailorJob(j); setActive('Resume Builder'); setSelectedJob(null); }}
+    />
   </>  
   );
 }
