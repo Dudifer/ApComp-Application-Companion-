@@ -212,7 +212,7 @@ export function JobDetailPanel({ job, onClose, onDismiss, onSave }: JobDetailPan
                 {job.companyType && <span style={{ color: 'var(--ink-tertiary)' }}> · {job.companyType}</span>}
               </div>
               <div style={{ fontSize: 12, color: 'var(--ink-tertiary)', marginTop: 2 }}>
-                {job.location.displayName}
+                {job.location?.displayName ?? 'Location not specified'}
                 {job.companyWebsite && (
                   <a
                     href={job.companyWebsite}

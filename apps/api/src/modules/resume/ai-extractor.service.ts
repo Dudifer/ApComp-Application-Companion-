@@ -72,7 +72,8 @@ ${rawText}`;
       });
 
       const text = message.content[0].type === 'text' ? message.content[0].text : '';
-      const profile: CvProfile = JSON.parse(text);
+      const clean = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+      const profile: CvProfile = JSON.parse(clean);
       profile.rawText = rawText;
       return profile;
     } catch (err) {
@@ -123,7 +124,8 @@ Return ONLY updated JSON with two keys:
       });
 
       const text = message.content[0].type === 'text' ? message.content[0].text : '';
-      const updates: { skills: SkillEntry[]; roles: Role[] } = JSON.parse(text);
+      const clean = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+      const updates: { skills: SkillEntry[]; roles: Role[] } = JSON.parse(clean);
 
       return {
         ...profile,
