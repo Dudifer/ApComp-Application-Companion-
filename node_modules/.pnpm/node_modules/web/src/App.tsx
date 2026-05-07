@@ -4,28 +4,11 @@ import { JobDetailPanel } from './components/JobDetailPanel';
 import { useApplications, STATUS_CONFIG } from './hooks/useApplications';
 import AllApplicationsPage from './pages/AllApplicationsPage';
 import ResumeBuilderPage from './pages/ResumeBuilderPage';
+import { useJobs } from './hooks/useJobs';
 
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Board", "Practice"];
  
 const [tailorJob, setTailorJob] = useState<Job | null>(null);
-
-const PENDING_APPS = [
-  { company: "Stripe", role: "Software Engineer II", date: "Apr 17", status: "Applied" },
-  { company: "Vercel", role: "Frontend Engineer", date: "Apr 15", status: "Phone Screen" },
-  { company: "Linear", role: "Full Stack Engineer", date: "Apr 12", status: "Applied" },
-  { company: "Notion", role: "Backend Engineer", date: "Apr 10", status: "Technical" },
-  { company: "Figma", role: "Software Engineer", date: "Apr 8", status: "Applied" },
-  { company: "Loom", role: "Platform Engineer", date: "Apr 5", status: "Offer" },
-];
- 
-const RECOMMENDED = [
-  { company: "Supabase", role: "Developer Advocate", match: "94% match", tags: ["TypeScript", "PostgreSQL"] },
-  { company: "PlanetScale", role: "Software Engineer", match: "91% match", tags: ["MySQL", "Go"] },
-  { company: "Railway", role: "Full Stack Engineer", match: "88% match", tags: ["React", "Node.js"] },
-  { company: "Resend", role: "Frontend Engineer", match: "85% match", tags: ["React", "TypeScript"] },
-  { company: "Trigger.dev", role: "Backend Engineer", match: "82% match", tags: ["TypeScript", "Redis"] },
-  { company: "Neon", role: "Cloud Engineer", match: "79% match", tags: ["PostgreSQL", "Rust"] },
-];
  
 const STATUS_COLORS: Record<string, string> = {
   Applied: "status-applied",
@@ -35,10 +18,12 @@ const STATUS_COLORS: Record<string, string> = {
 };
  
 export default function App() {
+  const { jobs } = useJobs();
+
   const [active, setActive] = useState("Dashboard");
 
   const { applications, loading, gmailConnected, connectGmail } = useApplications();
-  // add state:
+  
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   return (
     <>
@@ -497,21 +482,31 @@ export default function App() {
                 <a className="section-link" onClick={() => setActive('Applications')}>View all →</a>
               </div>
               <div className="scroll-row">
-                {applications.map((app) => (
-                  <div className="app-card" key={app.id}>
-                    <div className="app-card-top">
-                      <div className="company-logo">{app.company.slice(0, 2)}</div>
-                      <span className={`status-badge ${STATUS_CONFIG[app.status]?.colorClass ?? 'status-applied'}`}>
-                        {STATUS_CONFIG[app.status]?.label ?? app.status}
-                      </span>
-                    </div>
-                    <div className="app-company">{app.company}</div>
-                    <div className="app-role">{app.position ?? 'Unknown Position'}</div>
-                    <div className="app-date">Applied {new Date(app.appliedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                {applications.length === 0 ? (
+                  <div style={{
+                    padding: '40px 20px', color: 'var(--ink-tertiary)',
+                    fontSize: 13, textAlign: 'center', width: '100%',
+                  }}>
+                    {gmailConnected
+                      ? 'No applications found yet — check back after your next email sync.'
+                      : 'Connect Gmail to start tracking your applications.'}
                   </div>
-                ))}
+                ) : (
+                  applications.map((app) => (
+                    <div className="app-card" key={app.id}>
+                      <div className="app-card-top">
+                        <div className="company-logo">{app.company.slice(0, 2)}</div>
+                        <span className={`status-badge ${STATUS_CONFIG[app.status]?.colorClass ?? 'status-applied'}`}>
+                          {STATUS_CONFIG[app.status]?.label ?? app.status}
+                        </span>
+                      </div>
+                      <div className="app-company">{app.company}</div>
+                      <div className="app-role">{app.position ?? 'Unknown Position'}</div>
+                      <div className="app-date">Applied {new Date(app.appliedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                    </div>
+                  ))
+                )}
               </div>
-            </div>
 
             <div className="section">
               <div className="section-header">
@@ -520,22 +515,34 @@ export default function App() {
                 <a className="section-link">View all →</a>
               </div>
               <div className="scroll-row">
-                {RECOMMENDED.map((job) => (
-                  <div className="rec-card" key={job.company} onClick={() => setSelectedJob(job)}>
-                    <div className="rec-match">{job.match}</div>
-                    <div className="rec-company">{job.company}</div>
-                    <div className="rec-role">{job.role}</div>
-                    <div className="tags">
-                      {job.tags.map((t) => (
-                        <span className="tag" key={t}>{t}</span>
-                      ))}
-                    </div>
-                    <div className="rec-card-footer">
-                      <button className="apply-btn">Quick Apply</button>
-                      <button className="save-btn">Save ♡</button>
-                    </div>
+                {jobs.length === 0 ? (
+                  <div style={{
+                    padding: '40px 20px', color: 'var(--ink-tertiary)',
+                    fontSize: 13, textAlign: 'center',
+                  }}>
+                    No recommendations yet — connect your profile to get started.
                   </div>
-                ))}
+                ) : (
+                  jobs.map((job) => (
+                    <div className="rec-card" key={job.id} onClick={() => setSelectedJob(job)}>
+                      <div className="rec-match">{job.relevanceScore > 0 ? `${job.relevanceScore}% match` : job.source}</div>
+                      <div className="rec-company">{job.company}</div>
+                      <div className="rec-role">{job.title}</div>
+                      <div className="tags">
+                        {(job.tags ?? []).slice(0, 4).map((t) => (
+                          <span className="tag" key={t}>{t}</span>
+                        ))}
+                      </div>
+                      <div className="rec-card-footer">
+                        <a href={job.url} target="_blank" rel="noopener noreferrer" className="apply-btn"
+                          onClick={e => e.stopPropagation()}>
+                          Quick Apply
+                        </a>
+                        <button className="save-btn">Save ♡</button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </>
