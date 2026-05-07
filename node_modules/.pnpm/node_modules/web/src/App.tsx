@@ -8,8 +8,6 @@ import { useJobs } from './hooks/useJobs';
 
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Board", "Practice"];
  
-const [tailorJob, setTailorJob] = useState<Job | null>(null);
- 
 const STATUS_COLORS: Record<string, string> = {
   Applied: "status-applied",
   "Phone Screen": "status-phone",
@@ -24,6 +22,8 @@ export default function App() {
 
   const { applications, loading, gmailConnected, connectGmail } = useApplications();
   
+  const [tailorJob, setTailorJob] = useState<Job | null>(null);
+
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   return (
     <>
@@ -481,32 +481,33 @@ export default function App() {
                 )}
                 <a className="section-link" onClick={() => setActive('Applications')}>View all →</a>
               </div>
-              <div className="scroll-row">
-                {applications.length === 0 ? (
-                  <div style={{
-                    padding: '40px 20px', color: 'var(--ink-tertiary)',
-                    fontSize: 13, textAlign: 'center', width: '100%',
-                  }}>
-                    {gmailConnected
-                      ? 'No applications found yet — check back after your next email sync.'
-                      : 'Connect Gmail to start tracking your applications.'}
-                  </div>
-                ) : (
-                  applications.map((app) => (
-                    <div className="app-card" key={app.id}>
-                      <div className="app-card-top">
-                        <div className="company-logo">{app.company.slice(0, 2)}</div>
-                        <span className={`status-badge ${STATUS_CONFIG[app.status]?.colorClass ?? 'status-applied'}`}>
-                          {STATUS_CONFIG[app.status]?.label ?? app.status}
-                        </span>
-                      </div>
-                      <div className="app-company">{app.company}</div>
-                      <div className="app-role">{app.position ?? 'Unknown Position'}</div>
-                      <div className="app-date">Applied {new Date(app.appliedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+            </div>
+            <div className="scroll-row">
+              {applications.length === 0 ? (
+                <div style={{
+                  padding: '40px 20px', color: 'var(--ink-tertiary)',
+                  fontSize: 13, textAlign: 'center', width: '100%',
+                }}>
+                  {gmailConnected
+                    ? 'No applications found yet — check back after your next email sync.'
+                    : 'Connect Gmail to start tracking your applications.'}
+                </div>
+              ) : (
+                applications.map((app) => (
+                  <div className="app-card" key={app.id}>
+                    <div className="app-card-top">
+                      <div className="company-logo">{app.company.slice(0, 2)}</div>
+                      <span className={`status-badge ${STATUS_CONFIG[app.status]?.colorClass ?? 'status-applied'}`}>
+                        {STATUS_CONFIG[app.status]?.label ?? app.status}
+                      </span>
                     </div>
-                  ))
-                )}
-              </div>
+                    <div className="app-company">{app.company}</div>
+                    <div className="app-role">{app.position ?? 'Unknown Position'}</div>
+                    <div className="app-date">Applied {new Date(app.appliedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                  </div>
+                ))
+              )}
+            </div>
 
             <div className="section">
               <div className="section-header">
