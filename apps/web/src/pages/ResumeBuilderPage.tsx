@@ -20,6 +20,7 @@ import { useResumeBuilder } from '../hooks/useResumeBuilder';
 import { ResumePdfTemplate } from './ResumePdfTemplate';
 import type { ResumeExperience, ResumeProject, EditableBullet } from '../hooks/useResumeBuilder';
 import type { Job } from '@apcomp/types';
+import ResumePage from './ResumePage';
 
 interface Props {
   initialJob?: Job | null;
@@ -245,16 +246,7 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
     </div>
   );
 
-  if (error || !state) return (
-    <div style={{ padding: 48, textAlign: 'center' }}>
-      <div style={{ fontSize: 14, color: 'var(--ink-secondary)', marginBottom: 12 }}>
-        {error ?? 'No resume data found.'}
-      </div>
-      <div style={{ fontSize: 13, color: 'var(--ink-tertiary)' }}>
-        Please upload your CV first using the CV Upload section.
-      </div>
-    </div>
-  );
+  if (error || !state) return <ResumePage />;
 
   return (
     <>
@@ -329,7 +321,26 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
       <div className="builder-wrap">
         {/* ── Left Panel ── */}
         <div className="builder-left">
-          <div className="builder-title">Resume Builder</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <div className="builder-title">Resume Builder</div>
+            <button
+              onClick={() => {
+                if (confirm('Upload a new CV? This will replace your current profile.')) {
+                  fetch('http://localhost:3000/resume/profile', { method: 'DELETE' })
+                    .catch(() => {})
+                    .finally(() => window.location.reload());
+                }
+              }}
+              style={{
+                fontSize: 11, padding: '4px 10px', borderRadius: 6,
+                border: '1px solid var(--border)', background: 'white',
+                color: 'var(--ink-secondary)', cursor: 'pointer',
+                fontFamily: 'var(--font-body)',
+              }}
+            >
+              Re-upload CV
+            </button>
+          </div>
           <div className="builder-sub">Drag to reorder · click bullets to toggle · click text to edit</div>
 
           {/* Tailoring Banner */}

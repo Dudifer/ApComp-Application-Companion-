@@ -116,4 +116,8 @@ export class ResumeService {
       },
     });
   }
+
+  async deleteProfile() {
+    await this.prisma.cvProfile.deleteMany({ where: { userId: DEV_USER_ID } });
+  }
 }

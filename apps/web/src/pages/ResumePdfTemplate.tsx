@@ -3,26 +3,11 @@ import {
 } from '@react-pdf/renderer';
 import type { ResumeState } from './useResumeBuilder';
 
-// Register fonts for a clean professional look
-Font.register({
-  family: 'Garamond',
-  fonts: [
-    { src: 'https://fonts.gstatic.com/s/ebgaramond/v26/SlGDmQSNjdsmc35JDF1K5E55YMjF_7DPuGi-6_RUA4V-e6yHgQ.woff2', fontWeight: 400 },
-    { src: 'https://fonts.gstatic.com/s/ebgaramond/v26/SlGFmQSNjdsmc35JDF1K5GR3OjCv_BQn13fUhpo4TzY.woff2', fontWeight: 700 },
-  ],
-});
 
-Font.register({
-  family: 'OpenSans',
-  fonts: [
-    { src: 'https://fonts.gstatic.com/s/opensans/v40/memvYaGs126MiZpBA-UvWbX2vVnXBbObj2OVZyOOSr4dVJWUgsjZ0B4uaVoUwaEQbjA.woff2', fontWeight: 400 },
-    { src: 'https://fonts.gstatic.com/s/opensans/v40/memvYaGs126MiZpBA-UvWbX2vVnXBbObj2OVZyOOSr4dVJWUgsg-1x4uaVoUwaEQbjA.woff2', fontWeight: 700 },
-  ],
-});
 
 const s = StyleSheet.create({
   page: {
-    fontFamily: 'OpenSans',
+    fontFamily: 'Helvetica', 
     fontSize: 9.5,
     paddingTop: 36,
     paddingBottom: 36,
@@ -33,18 +18,19 @@ const s = StyleSheet.create({
 
   // Header
   headerName: {
-    fontFamily: 'Garamond',
+    fontFamily: 'Helvetica-Bold',
     fontSize: 24,
     fontWeight: 700,
     textAlign: 'center',
     letterSpacing: 0.5,
-    marginBottom: 2,
+    marginBottom: 6,
   },
   headerTitle: {
+    fontFamily: 'Helvetica-Bold',
     fontSize: 10,
     textAlign: 'center',
     color: '#555',
-    marginBottom: 6,
+    marginBottom: 8,
     letterSpacing: 1,
     textTransform: 'uppercase',
   },
@@ -66,7 +52,7 @@ const s = StyleSheet.create({
 
   // Section
   sectionHeader: {
-    fontFamily: 'Garamond',
+    fontFamily: 'Helvetica-Bold',
     fontSize: 12,
     fontWeight: 700,
     textTransform: 'uppercase',
@@ -86,6 +72,7 @@ const s = StyleSheet.create({
     marginBottom: 1,
   },
   expCompany: {
+    fontFamily: 'Helvetica-Bold',
     fontWeight: 700,
     fontSize: 10,
   },
@@ -99,7 +86,7 @@ const s = StyleSheet.create({
     marginBottom: 3,
   },
   expTitle: {
-    fontStyle: 'italic',
+    fontFamily: 'Helvetica-Oblique',
     fontSize: 9.5,
     color: '#333',
   },

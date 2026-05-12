@@ -3,6 +3,7 @@ import {
   Post,
   Get,
   Body,
+  Delete,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
@@ -29,4 +30,10 @@ export class ResumeController {
   getProfile() {
     return this.resumeService.getProfile();
   }
+
+  @Delete('profile')
+  async deleteProfile() {
+    await this.resumeService.deleteProfile();
+    return { success: true };
+}
 }

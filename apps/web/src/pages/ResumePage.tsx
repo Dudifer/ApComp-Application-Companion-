@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type { CvProfile, GapQuestion, SkillEntry } from '@apcomp/types';
 
 const API = 'http://localhost:3000';
@@ -290,6 +290,19 @@ export default function ResumePage() {
 
   const totalAnswered = Object.keys(answers).length;
   const totalQuestions = profile?.gapQuestions.length ?? 0;
+
+
+  useEffect(() => {
+    fetch(`${API}/resume/profile`)
+      .then(r => r.json())
+      .then((p: CvProfile) => {
+        if (p && p.name) {
+          setProfile(p);
+          setStage(p.isComplete ? 'profile' : p.gapQuestions?.length > 0 ? 'gaps' : 'profile');
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <>

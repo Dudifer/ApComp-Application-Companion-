@@ -6,16 +6,12 @@ import { AiFilterService } from './ai-filter.service';
 import { CompanyEnrichmentService } from './company-enrichment.service';
 import { JobCacheService } from './job-cache.service';
 import { PrismaService } from '../prisma/prisma.service';
-
-const SEARCH_QUERIES = [
-  'software engineer',
-  'software developer',
-  'full stack developer',
-  'backend engineer',
-  'frontend engineer',
-];
+import { CvProfile } from '@apcomp/types';
 
 const DEV_USER_ID = 'dev-user';
+
+// Fallback queries if no CV profile exists yet
+const FALLBACK_QUERIES = ['software engineer', 'software developer', 'full stack developer'];
 
 @Injectable()
 export class JobsService {
@@ -36,16 +32,64 @@ export class JobsService {
       update: {},
       create: {
         id: DEV_USER_ID,
-        email: 'dev@apcomp.local',
+        email: process.env.DEV_USER_EMAIL ?? 'dev@apcomp.local',
         name: 'Dev User',
       },
     });
   }
 
+  private async getCvProfile(): Promise<CvProfile | null> {
+    try {
+      const row = await this.prisma.cvProfile.findUnique({
+        where: { userId: DEV_USER_ID },
+      });
+      if (!row) return null;
+      return {
+        name: row.name ?? undefined,
+        email: row.email ?? undefined,
+        rawText: row.rawText ?? undefined,
+        roles: row.roles as CvProfile['roles'],
+        skills: row.skills as CvProfile['skills'],
+        practices: row.practices as string[],
+        gapQuestions: row.gapQuestions as CvProfile['gapQuestions'],
+        isComplete: row.isComplete,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private buildSearchQueries(profile: CvProfile | null): string[] {
+    if (!profile?.roles?.length) return FALLBACK_QUERIES;
+
+    const queries: string[] = [];
+
+    // Use most recent job titles
+    const recentTitles = profile.roles
+      .sort((a, b) => (b.startDate > a.startDate ? 1 : -1))
+      .slice(0, 2)
+      .map(r => r.title.toLowerCase());
+
+    queries.push(...recentTitles);
+
+    // Add skill-based queries from top skills
+    const topSkills = profile.skills
+      ?.sort((a, b) => b.monthsExperience - a.monthsExperience)
+      .slice(0, 3)
+      .map(s => s.name);
+
+    if (topSkills?.length) {
+      queries.push(`${topSkills[0]} developer`);
+    }
+
+    // Deduplicate and limit
+    return [...new Set(queries)].slice(0, 3);
+  }
+
   async getRecommendedJobs(): Promise<Job[]> {
     await this.ensureDevUser();
 
-    // 1. Check DB for non-expired saved jobs
+    // Return cached DB jobs if still fresh
     const saved = await this.prisma.savedJob.findMany({
       where: { userId: DEV_USER_ID, expiresAt: { gt: new Date() } },
     });
@@ -55,56 +99,53 @@ export class JobsService {
       return saved.map(s => s.jobData as unknown as Job);
     }
 
-    // 2. Check disk cache as fallback
+    // Check disk cache fallback
     const diskCached = this.jobCache.loadRawJobs();
     if (diskCached) {
-      this.logger.log(`Returning ${diskCached.length} jobs from disk cache — attempting to save to DB`);
+      this.logger.log(`Returning ${diskCached.length} jobs from disk cache`);
       await this.saveJobsToDB(diskCached).catch(err =>
         this.logger.warn('Could not save disk cache to DB:', err)
       );
       return diskCached;
     }
 
-    // 3. Fetch fresh from APIs
     return this.fetchAndProcess();
   }
 
   private async fetchAndProcess(): Promise<Job[]> {
+    const profile = await this.getCvProfile();
     const weights = await this.getWeights();
+    const queries = this.buildSearchQueries(profile);
+
+    this.logger.log(`Using search queries: ${queries.join(', ')}`);
+
     const adzunaCount = Math.round(20 * weights.adzuna * 2);
     const jsearchCount = Math.round(2 * weights.jsearch * 2);
 
+    // Fetch using profile-derived queries
     const [adzunaJobs, jsearchJobs] = await Promise.all([
-      this.adzuna.fetchJobs(SEARCH_QUERIES[0], adzunaCount),
-      this.jsearch.fetchJobs(SEARCH_QUERIES[0], jsearchCount),
+      this.adzuna.fetchJobs(queries[0], adzunaCount),
+      this.jsearch.fetchJobs(queries[0], jsearchCount),
     ]);
 
     this.logger.log(`Fetched ${adzunaJobs.length} Adzuna + ${jsearchJobs.length} JSearch jobs`);
 
     const combined = this.deduplicate([...adzunaJobs, ...jsearchJobs]);
 
-    // ✅ Save raw jobs to disk IMMEDIATELY before any processing that could fail
+    // Save raw to disk immediately
     this.jobCache.saveRawJobs(combined);
 
-    // Enrichment (Clearbit lookups — could fail for some)
     const enriched = await this.enrichment.enrichJobs(combined);
-
-    // Update disk cache with enriched data
     this.jobCache.saveRawJobs(enriched);
 
-    // AI filter + score
     const dismissals = await this.getDismissals();
-    const filtered = await this.aiFilter.scoreAndFilter(enriched, dismissals);
 
+    // Pass real profile to AI filter
+    const filtered = await this.aiFilter.scoreAndFilter(enriched, dismissals, profile);
     this.logger.log(`${filtered.length} jobs after AI filtering`);
 
-    // Update disk cache with final filtered data
     this.jobCache.saveRawJobs(filtered);
-
-    // Save to DB
     await this.saveJobsToDB(filtered);
-
-    // Clear disk cache since DB now has the data
     this.jobCache.clearCache();
 
     return filtered;
