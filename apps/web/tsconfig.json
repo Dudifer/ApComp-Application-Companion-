@@ -8,5 +8,8 @@
     "@pkg-types/*": ["../../packages/types/src/*"],
     "@apcomp/types": ["../../packages/types/src"],
     "@apcomp/types/*": ["../../packages/types/src/*"]
+  },
+  "compilerOptions": {
+    "types": ["jest"]
   }
 }

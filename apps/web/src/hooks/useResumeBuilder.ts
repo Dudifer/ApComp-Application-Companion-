@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { CvProfile, Role, SkillEntry } from '@apcomp/types';
 import type { Job } from '@apcomp/types';
 import { tailorResumeForJob, type TailoringResult } from './resumeTailor';
+import { buildInitialState } from './resumeUtils';
 
 const API = 'http://localhost:3000';
 
@@ -61,62 +62,6 @@ export interface ResumeState {
   projects: ResumeProject[];
   skillGroups: ResumeSkillGroup[];
 }
-
-function parseContactLine(rawText: string): Partial<ResumeHeader> {
-  const phone = rawText.match(/(\d{3}[-.]?\d{3}[-.]?\d{4})/)?.[1] ?? '';
-  const email = rawText.match(/[\w.]+@[\w.]+\.\w+/)?.[0] ?? '';
-  const linkedin = rawText.match(/linkedin\.com\/in\/([\w-]+)/)?.[1] ?? '';
-  const github = rawText.match(/github\.com\/([\w-]+)/)?.[1] ?? '';
-  return {
-    phone,
-    email,
-    linkedin: linkedin ? `linkedin.com/in/${linkedin}` : '',
-    github: github ? `github.com/${github}` : '',
-  };
-}
-
-function roleToBullets(role: Role): EditableBullet[] {
-  // Use the description field from the AI-extracted role
-  const lines = role.description
-    .split(/\n/)
-    .map(l => l.replace(/^[•\-]\s*/, '').trim())
-    .filter(l => l.length > 15);
-
-  if (lines.length === 0 && role.description.length > 10) {
-    return [{ id: `b-${role.company}-0`, text: role.description.trim(), active: true }];
-  }
-
-  return lines.map((text, i) => ({
-    id: `b-${role.company}-${i}`,
-    text,
-    active: true,
-  }));
-}
-
-function buildInitialState(p: CvProfile): ResumeState {
-  const contact = parseContactLine(p.rawText ?? '');
-
-  const experience: ResumeExperience[] = p.roles.map((role, i) => ({
-    id: `exp-${i}`,
-    active: true,
-    company: role.company,
-    title: role.title,
-    startDate: role.startDate,
-    endDate: role.endDate,
-    bullets: roleToBullets(role),
-  }));
-  const projectLines: string[] = [];
-  if (p.rawText) {
-    const rawLines = p.rawText.split('\n').map(l => l.trim());
-    let inProjects = false;
-    for (const line of rawLines) {
-      if (/personal projects/i.test(line)) { inProjects = true; continue; }
-      if (/technical skills|work experience|education/i.test(line)) { inProjects = false; continue; }
-      if (inProjects && line.length > 10) {
-        projectLines.push(line.replace(/^[•\-]\s*/, '').trim());
-      }
-    }
-  }
 
   const projects: ResumeProject[] = projectLines
     .filter(t => t.length > 10)
