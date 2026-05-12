@@ -76,13 +76,14 @@ function parseContactLine(rawText: string): Partial<ResumeHeader> {
 }
 
 function roleToBullets(role: Role): EditableBullet[] {
+  // Use the description field from the AI-extracted role
   const lines = role.description
-    .split(/[•\n]/)
-    .map(l => l.trim())
-    .filter(l => l.length > 10);
+    .split(/\n/)
+    .map(l => l.replace(/^[•\-]\s*/, '').trim())
+    .filter(l => l.length > 15);
 
-  if (lines.length === 0) {
-    return [{ id: `b-${Math.random()}`, text: role.description, active: true }];
+  if (lines.length === 0 && role.description.length > 10) {
+    return [{ id: `b-${role.company}-0`, text: role.description.trim(), active: true }];
   }
 
   return lines.map((text, i) => ({
@@ -104,17 +105,32 @@ function buildInitialState(p: CvProfile): ResumeState {
     endDate: role.endDate,
     bullets: roleToBullets(role),
   }));
+  const projectLines: string[] = [];
+  if (p.rawText) {
+    const rawLines = p.rawText.split('\n').map(l => l.trim());
+    let inProjects = false;
+    for (const line of rawLines) {
+      if (/personal projects/i.test(line)) { inProjects = true; continue; }
+      if (/technical skills|work experience|education/i.test(line)) { inProjects = false; continue; }
+      if (inProjects && line.length > 10) {
+        projectLines.push(line.replace(/^[•\-]\s*/, '').trim());
+      }
+    }
+  }
 
-  const projectsMatch = p.rawText?.match(/Personal Projects([\s\S]*?)(?:Technical Skills|$)/i);
-  const projectLines = projectsMatch
-    ? projectsMatch[1].split(/[•\n]/).map(l => l.trim()).filter(l => l.length > 10)
-    : [];
+  const projects: ResumeProject[] = projectLines
+    .filter(t => t.length > 10)
+    .map((text, i) => ({ id: `proj-${i}`, active: true, text }));
+  // const projectsMatch = p.rawText?.match(/Personal Projects([\s\S]*?)(?:Technical Skills|$)/i);
+  // const projectLines = projectsMatch
+  //   ? projectsMatch[1].split(/[•\n]/).map(l => l.trim()).filter(l => l.length > 10)
+  //   : [];
 
-  const projects: ResumeProject[] = projectLines.map((text, i) => ({
-    id: `proj-${i}`,
-    active: true,
-    text,
-  }));
+  // const projects: ResumeProject[] = projectLines.map((text, i) => ({
+  //   id: `proj-${i}`,
+  //   active: true,
+  //   text,
+  // }));
 
   const byCategory: Record<string, SkillEntry[]> = {};
   p.skills.forEach(s => {

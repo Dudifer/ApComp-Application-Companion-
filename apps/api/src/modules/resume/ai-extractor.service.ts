@@ -38,6 +38,9 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       "usedAt": ["company names"]
     }
   ],
+IMPORTANT: "Personal Projects" is NOT a role/job. Do not include it in the roles array.
+Leave project bullets out of role descriptions entirely — they will be extracted separately from the raw text.
+The roles array should ONLY contain actual paid employment or internship positions with a company name.
   "practices": ["list of engineering practices used overall"],
   "gapQuestions": [
     {
