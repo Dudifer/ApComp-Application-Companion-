@@ -26,7 +26,11 @@ export interface ResumeExperience {
 export interface ResumeProject {
   id: string;
   active: boolean;
-  text: string;
+  name: string;           // e.g. "Iris-Seratota Flower Identification"
+  category?: string;      // e.g. "Computer Vision & Machine Learning"
+  date?: string;          // e.g. "Fall 2022"
+  techStack?: string;     // e.g. "Python - PyTorch - sklearn - NumPy"
+  bullets: EditableBullet[];
 }
 
 export interface ResumeSkillGroup {

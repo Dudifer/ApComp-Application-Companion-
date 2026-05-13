@@ -24,7 +24,7 @@ interface JobDetailPanelProps {
   onClose: () => void;
   onDismiss: (job: Job) => void;
   onSave: (job: Job) => void;
-  onTailor: (job: Job) => void;  // ← add this
+  onTailor: (job: Job) => void;  
 }
 
 function formatSalary(job: Job): string {
@@ -109,7 +109,7 @@ function ConfidenceBar({ value }: { value: number }) {
   );
 }
 
-export function JobDetailPanel({ job, onClose, onDismiss, onSave }: JobDetailPanelProps) {
+export function JobDetailPanel({ job, onClose, onDismiss, onSave, onTailor}: JobDetailPanelProps) {
   const [contacts, setContacts] = useState<ContactResult | null>(null);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);

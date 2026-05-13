@@ -1,13 +1,11 @@
 import {
-  Document, Page, Text, View, StyleSheet, Font, Link,
+  Document, Page, Text, View, StyleSheet,
 } from '@react-pdf/renderer';
-import type { ResumeState } from './useResumeBuilder';
-
-
+import type { ResumeState } from '../hooks/useResumeBuilder';
 
 const s = StyleSheet.create({
   page: {
-    fontFamily: 'Helvetica', 
+    fontFamily: 'Helvetica',
     fontSize: 9.5,
     paddingTop: 36,
     paddingBottom: 36,
@@ -15,46 +13,33 @@ const s = StyleSheet.create({
     color: '#1a1814',
     lineHeight: 1.4,
   },
-
-  // Header
   headerName: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 24,
-    fontWeight: 700,
+    fontSize: 22,
     textAlign: 'center',
     letterSpacing: 0.5,
     marginBottom: 6,
   },
   headerTitle: {
-    fontFamily: 'Helvetica-Bold',
     fontSize: 10,
     textAlign: 'center',
     color: '#555',
     marginBottom: 8,
     letterSpacing: 1,
-    textTransform: 'uppercase',
   },
   headerContact: {
     flexDirection: 'row',
     justifyContent: 'center',
     flexWrap: 'wrap',
-    gap: 4,
     fontSize: 8.5,
     color: '#444',
     marginBottom: 12,
   },
-  contactItem: {
-    marginHorizontal: 4,
-  },
-  contactSep: {
-    color: '#aaa',
-  },
-
-  // Section
+  contactItem: { marginHorizontal: 4 },
+  contactSep: { color: '#aaa' },
   sectionHeader: {
     fontFamily: 'Helvetica-Bold',
-    fontSize: 12,
-    fontWeight: 700,
+    fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 1.5,
     borderBottomWidth: 1,
@@ -63,126 +48,71 @@ const s = StyleSheet.create({
     marginBottom: 6,
     marginTop: 10,
   },
-
-  // Experience
+  expBlock: { marginBottom: 8 },
   expHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 1,
   },
-  expCompany: {
-    fontFamily: 'Helvetica-Bold',
-    fontWeight: 700,
-    fontSize: 10,
-  },
-  expLocation: {
-    fontSize: 9,
-    color: '#555',
-  },
-  expTitleRow: {
+  expTitle: { fontFamily: 'Helvetica-Bold', fontSize: 10 },
+  expDates: { fontSize: 9, color: '#555' },
+  expCompanyRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 3,
   },
-  expTitle: {
-    fontFamily: 'Helvetica-Oblique',
-    fontSize: 9.5,
-    color: '#333',
-  },
-  expDates: {
-    fontSize: 9,
-    color: '#555',
-  },
-  bullet: {
+  expCompany: { fontFamily: 'Helvetica-Oblique', fontSize: 9.5, color: '#333' },
+  expLocation: { fontSize: 9, color: '#555' },
+  bullet: { flexDirection: 'row', marginBottom: 2, paddingLeft: 8 },
+  bulletDot: { width: 10, fontSize: 9, color: '#333' },
+  bulletText: { flex: 1, fontSize: 9, color: '#222', lineHeight: 1.45 },
+  projBlock: { marginBottom: 8 },
+  projHeader: {
     flexDirection: 'row',
-    marginBottom: 2,
-    paddingLeft: 8,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 1,
   },
-  bulletDot: {
-    width: 10,
+  projNameRow: { flexDirection: 'row', flexWrap: 'wrap', flex: 1 },
+  projName: { fontFamily: 'Helvetica-Bold', fontSize: 10 },
+  projSep: { fontSize: 10, color: '#555', marginHorizontal: 3 },
+  projCategory: { fontSize: 10, color: '#333' },
+  projDate: { fontSize: 9, color: '#555', flexShrink: 0 },
+  
+  projTechStack: {
+    fontFamily: 'Helvetica-Oblique',
     fontSize: 9,
-    color: '#333',
-  },
-  bulletText: {
-    flex: 1,
-    fontSize: 9,
-    color: '#222',
-    lineHeight: 1.45,
-  },
-  expBlock: {
-    marginBottom: 8,
+    color: '#444',
+    marginBottom: 3,
   },
 
-  // Education
   eduHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 1,
   },
-  eduInstitution: {
-    fontWeight: 700,
-    fontSize: 10,
-  },
-  eduLocation: {
-    fontSize: 9,
-    color: '#555',
-  },
-  eduDegreeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  eduDegree: {
-    fontStyle: 'italic',
-    fontSize: 9.5,
-    color: '#333',
-  },
-  eduDates: {
-    fontSize: 9,
-    color: '#555',
-  },
-
-  // About
-  aboutText: {
-    fontSize: 9,
-    color: '#222',
-    lineHeight: 1.5,
-  },
-
-  // Skills
-  skillRow: {
-    flexDirection: 'row',
-    marginBottom: 3,
-  },
-  skillLabel: {
-    fontWeight: 700,
-    fontSize: 9,
-    width: 140,
-  },
-  skillValue: {
-    flex: 1,
-    fontSize: 9,
-    color: '#222',
-  },
-
-  // Projects
-  projectBullet: {
-    flexDirection: 'row',
-    marginBottom: 3,
-    paddingLeft: 4,
-  },
+  eduInstitution: { fontFamily: 'Helvetica-Bold', fontSize: 10 },
+  eduLocation: { fontSize: 9, color: '#555' },
+  eduDegreeRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  eduDegree: { fontFamily: 'Helvetica-Oblique', fontSize: 9.5, color: '#333' },
+  eduDates: { fontSize: 9, color: '#555' },
+  aboutText: { fontSize: 9, color: '#222', lineHeight: 1.5 },
+  
+  skillRow: { flexDirection: 'row', marginBottom: 3 },
+  skillLabel: { fontFamily: 'Helvetica-Bold', fontSize: 9, width: 140 },
+  skillValue: { flex: 1, fontSize: 9, color: '#222' },
 });
 
-function formatDate(d: string): string {
+function formatDate(d?: string): string {
   if (!d) return '';
+  if (!d.includes('-')) return d; // already "Fall 2022" etc
   const [y, m] = d.split('-');
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return `${months[parseInt(m) - 1] ?? ''} ${y}`;
 }
 
-interface Props {
-  state: ResumeState;
-}
+interface Props { state: ResumeState; }
 
 export function ResumePdfTemplate({ state }: Props) {
   const { header, aboutMe, education, experience, projects, skillGroups } = state;
@@ -191,13 +121,7 @@ export function ResumePdfTemplate({ state }: Props) {
   const activeProjects = projects.filter(p => p.active);
   const activeSkills = skillGroups.filter(sg => sg.active);
   const activeEdu = education.filter(e => e.active);
-
-  const contactParts = [
-    header.phone,
-    header.email,
-    header.linkedin,
-    header.github,
-  ].filter(Boolean);
+  const contactParts = [header.phone, header.email, header.linkedin, header.github].filter(Boolean);
 
   return (
     <Document>
@@ -235,12 +159,12 @@ export function ResumePdfTemplate({ state }: Props) {
         )}
 
         {/* About Me */}
-        {aboutMe && (
+        {aboutMe ? (
           <View>
             <Text style={s.sectionHeader}>About Me</Text>
             <Text style={s.aboutText}>{aboutMe}</Text>
           </View>
-        )}
+        ) : null}
 
         {/* Work Experience */}
         {activeExp.length > 0 && (
@@ -251,13 +175,13 @@ export function ResumePdfTemplate({ state }: Props) {
               return (
                 <View key={exp.id} style={s.expBlock}>
                   <View style={s.expHeader}>
-                    <Text style={s.expCompany}>{exp.title}</Text>
+                    <Text style={s.expTitle}>{exp.title}</Text>
                     <Text style={s.expDates}>
                       {formatDate(exp.startDate)} - {exp.endDate ? formatDate(exp.endDate) : 'Present'}
                     </Text>
                   </View>
-                  <View style={s.expTitleRow}>
-                    <Text style={s.expTitle}>{exp.company}</Text>
+                  <View style={s.expCompanyRow}>
+                    <Text style={s.expCompany}>{exp.company}</Text>
                     <Text style={s.expLocation}>{exp.location ?? ''}</Text>
                   </View>
                   {activeBullets.map(b => (
@@ -276,12 +200,37 @@ export function ResumePdfTemplate({ state }: Props) {
         {activeProjects.length > 0 && (
           <View>
             <Text style={s.sectionHeader}>Personal Projects</Text>
-            {activeProjects.map(p => (
-              <View key={p.id} style={s.projectBullet}>
-                <Text style={s.bulletDot}>•</Text>
-                <Text style={s.bulletText}>{p.text}</Text>
-              </View>
-            ))}
+            {activeProjects.map(proj => {
+              const activeBullets = proj.bullets.filter(b => b.active);
+              return (
+                <View key={proj.id} style={s.projBlock}>
+                  {/* Name | Category          Date */}
+                  <View style={s.projHeader}>
+                    <View style={s.projNameRow}>
+                      <Text style={s.projName}>{proj.name}</Text>
+                      {proj.category && (
+                        <>
+                          <Text style={s.projSep}> | </Text>
+                          <Text style={s.projCategory}>{proj.category}</Text>
+                        </>
+                      )}
+                    </View>
+                    {proj.date && <Text style={s.projDate}>{proj.date}</Text>}
+                  </View>
+                  {/* Tech stack italic */}
+                  {proj.techStack && (
+                    <Text style={s.projTechStack}>{proj.techStack}</Text>
+                  )}
+                  {/* Bullets */}
+                  {activeBullets.map(b => (
+                    <View key={b.id} style={s.bullet}>
+                      <Text style={s.bulletDot}>•</Text>
+                      <Text style={s.bulletText}>{b.text}</Text>
+                    </View>
+                  ))}
+                </View>
+              );
+            })}
           </View>
         )}
 

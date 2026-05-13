@@ -39,26 +39,79 @@ export function roleToBullets(role: Role): EditableBullet[] {
   }));
 }
 
-export function extractProjects(rawText: string): ResumeProject[] {
-  const lines: string[] = [];
-  const rawLines = rawText.split('\n').map(l => l.trim());
-  let inProjects = false;
+export function extractProjects(profile: CvProfile): ResumeProject[] {
+  // Use AI-extracted structured projects if available
+  if (profile.projects && profile.projects.length > 0) {
+    return profile.projects.map((p, i) => ({
+      id: `proj-${i}`,
+      active: true,
+      name: p.name,
+      category: p.category,
+      date: p.date,
+      techStack: p.techStack,
+      bullets: (p.bullets ?? []).map((text, j) => ({
+        id: `pb-${i}-${j}`,
+        text,
+        active: true,
+      })),
+    }));
+  }
 
-  for (const line of rawLines) {
+  // Fallback: parse from rawText
+  if (!profile.rawText) return [];
+  return extractProjectsFromRawText(profile.rawText);
+}
+
+function extractProjectsFromRawText(rawText: string): ResumeProject[] {
+  const lines = rawText.split('\n').map(l => l.trim());
+  let inProjects = false;
+  const projects: ResumeProject[] = [];
+  let current: ResumeProject | null = null;
+
+  for (const line of lines) {
     if (/personal projects/i.test(line)) { inProjects = true; continue; }
     if (/technical skills|work experience|education/i.test(line)) { inProjects = false; continue; }
-    if (inProjects && line.length > 10) {
-      lines.push(line.replace(/^[•\-]\s*/, '').trim());
+    if (!inProjects || !line) continue;
+
+    const isBullet = /^[•\-]/.test(line);
+
+    if (!isBullet && line.includes('|')) {
+      // Project header line: "Name | Category   Date"
+      const parts = line.split('|');
+      const name = parts[0].trim();
+      const rest = parts[1] ?? '';
+      // Try to split category and date (date is usually at the end after spaces)
+      const dateMatch = rest.match(/^(.*?)\s{2,}(\w+\s+\d{4})$/);
+      const category = dateMatch ? dateMatch[1].trim() : rest.trim();
+      const date = dateMatch ? dateMatch[2].trim() : undefined;
+
+      if (current) projects.push(current);
+      current = {
+        id: `proj-${projects.length}`,
+        active: true,
+        name,
+        category,
+        date,
+        techStack: undefined,
+        bullets: [],
+      };
+    } else if (current && isBullet) {
+      current.bullets.push({
+        id: `pb-${projects.length}-${current.bullets.length}`,
+        text: line.replace(/^[•\-]\s*/, '').trim(),
+        active: true,
+      });
+    } else if (current && !isBullet && !current.techStack && (line.includes('-') || line.includes(','))) {
+      // Tech stack line
+      current.techStack = line;
     }
   }
 
-  return lines
-    .filter(t => t.length > 10)
-    .map((text, i) => ({ id: `proj-${i}`, active: true, text }));
+  if (current) projects.push(current);
+  return projects;
 }
 
 export function extractSkillGroups(profile: CvProfile): ResumeSkillGroup[] {
-  // First try structured skills from AI extraction
   const byCategory: Record<string, SkillEntry[]> = {};
   (profile.skills ?? []).forEach(s => {
     (byCategory[s.category] = byCategory[s.category] ?? []).push(s);
@@ -73,7 +126,6 @@ export function extractSkillGroups(profile: CvProfile): ResumeSkillGroup[] {
 
   if (groups.length > 0) return groups;
 
-  // Fallback: parse from rawText
   if (!profile.rawText) return [];
   const result: ResumeSkillGroup[] = [];
   const primaryMatch = profile.rawText.match(/Primary Languages?:\s*([^\n]+)/i);
@@ -126,7 +178,7 @@ export function buildInitialState(p: CvProfile): ResumeState {
     aboutMe: extractAboutMe(rawText),
     education: extractEducation(rawText),
     experience,
-    projects: extractProjects(rawText),
+    projects: extractProjects(p),
     skillGroups: extractSkillGroups(p),
   };
 }

@@ -496,7 +496,12 @@ export default function ResumePage() {
             </div>
 
             <button className="find-jobs-btn">
-              ✦ Find matching jobs
+              className="find-jobs-btn"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('navigate', { detail: 'Resume Builder' }));
+              }}
+            >
+              ✦ Build my resume
             </button>
 
             <div className="section-divider">Skill breakdown</div>

@@ -7,18 +7,26 @@ export interface SkillEntry {
   category: SkillCategory;
   monthsExperience: number;
   proficiency: Proficiency;
-  usedAt: string[]; // company names
+  usedAt: string[];
 }
 
 export interface Role {
   company: string;
   title: string;
-  startDate: string;   // "YYYY-MM" format
-  endDate?: string;    // undefined = current
+  startDate: string;
+  endDate?: string;
   durationMonths: number;
   technologies: string[];
   practices: string[];
   description: string;
+}
+
+export interface Project {
+  name: string;
+  category?: string;
+  date?: string;
+  techStack?: string;
+  bullets: string[];
 }
 
 export interface GapQuestion {
@@ -36,6 +44,7 @@ export interface CvProfile {
   roles: Role[];
   skills: SkillEntry[];
   practices: string[];
+  projects?: Project[];
   gapQuestions: GapQuestion[];
   isComplete: boolean;
   rawText?: string;

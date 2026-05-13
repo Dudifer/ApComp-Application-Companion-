@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { Job } from '../../../packages/types/src/job';
 import { JobDetailPanel } from './components/JobDetailPanel';
 import { useApplications, STATUS_CONFIG } from './hooks/useApplications';
@@ -7,7 +7,6 @@ import ResumeBuilderPage from './pages/ResumeBuilderPage';
 import { useJobs } from './hooks/useJobs';
 import JobSearchPage from './pages/JobSearchPage';
 import ResumeDemoPage from './pages/ResumeDemoPage';
-
 
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Resume Demo", "Job Search", "Practice"];
  
@@ -28,6 +27,15 @@ export default function App() {
   const [tailorJob, setTailorJob] = useState<Job | null>(null);
 
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setActive((e as CustomEvent).detail);
+    };
+    window.addEventListener('navigate', handler);
+    return () => window.removeEventListener('navigate', handler);
+  }, []);
+  
   return (
     <>
       <style>{`
