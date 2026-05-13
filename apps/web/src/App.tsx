@@ -7,6 +7,7 @@ import ResumeBuilderPage from './pages/ResumeBuilderPage';
 import { useJobs } from './hooks/useJobs';
 import JobSearchPage from './pages/JobSearchPage';
 import ResumeDemoPage from './pages/ResumeDemoPage';
+import ResumePage from './pages/ResumePage';
 
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Resume Demo", "Job Search", "Practice"];
  
@@ -35,7 +36,7 @@ export default function App() {
     window.addEventListener('navigate', handler);
     return () => window.removeEventListener('navigate', handler);
   }, []);
-  
+
   return (
     <>
       <style>{`
@@ -458,8 +459,10 @@ export default function App() {
           <AllApplicationsPage />
         ) : active === 'Resume Demo' ? (
           <ResumeDemoPage />
-        ) : active === 'Resume Builder' ? (
-          <ResumeBuilderPage initialJob={tailorJob} />
+        ) : active === 'CV Upload' ? (
+          <ResumePage />
+        ): active === 'Resume Builder' ? (
+          <ResumeBuilderPage initialJob={tailorJob} onNavigate={(page) => setActive(page)}/>
         ) : active === 'Job Search' ? (
           <JobSearchPage onJobSelect={job => { setSelectedJob(job); }}/>
         ) : (

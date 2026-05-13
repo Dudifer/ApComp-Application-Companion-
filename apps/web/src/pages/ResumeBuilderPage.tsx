@@ -24,6 +24,7 @@ import ResumePage from './ResumePage';
 
 interface Props {
   initialJob?: Job | null;
+  onNavigate?: (page: string) => void;
 }
 
 // ── Sortable Experience Card ─────────────────────────────────────────────────
@@ -246,7 +247,26 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
     </div>
   );
 
-  if (error || !state) return <ResumePage />;
+  if (error || !state) return (
+    <div style={{ padding: 48, textAlign: 'center' }}>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 600, marginBottom: 8 }}>
+        No CV uploaded yet
+      </div>
+      <div style={{ fontSize: 14, color: 'var(--ink-tertiary)', marginBottom: 24 }}>
+        Upload your CV first to use the resume builder.
+      </div>
+      <button
+        onClick={() => window.dispatchEvent(new CustomEvent('navigate', { detail: 'CV Upload' }))}
+        style={{
+          padding: '10px 24px', background: 'var(--ink)', color: 'white',
+          border: 'none', borderRadius: 8, cursor: 'pointer',
+          fontFamily: 'var(--font-body)', fontSize: 14,
+        }}
+      >
+        Upload CV →
+      </button>
+    </div>
+  );
 
   return (
     <>

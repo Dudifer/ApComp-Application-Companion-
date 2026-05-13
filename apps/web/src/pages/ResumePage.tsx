@@ -234,6 +234,7 @@ export default function ResumePage() {
       const data: CvProfile = await res.json();
       setProfile(data);
       setStage(data.gapQuestions.length > 0 ? 'gaps' : 'profile');
+      window.location.reload();
     } catch (err: any) {
       setError(err.message ?? 'Upload failed. Please try again.');
       setStage('upload');
@@ -495,12 +496,11 @@ export default function ResumePage() {
               </button>
             </div>
 
-            <button className="find-jobs-btn">
-              className="find-jobs-btn"
+            <button className="find-jobs-btn"
               onClick={() => {
                 window.dispatchEvent(new CustomEvent('navigate', { detail: 'Resume Builder' }));
               }}
-            >
+              >
               ✦ Build my resume
             </button>
 

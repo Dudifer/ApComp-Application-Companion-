@@ -3,7 +3,7 @@ import type { ResumeState, ResumeExperience, ResumeProject } from './useResumeBu
 
 // Rough character-based page estimation
 // A letter page at 9.5pt with our margins fits ~4000 chars of content
-const PAGE_CHAR_LIMIT = 3800;
+const PAGE_CHAR_LIMIT = 3000;
 
 function extractJobKeywords(job: Job): string[] {
   const sources = [
@@ -73,7 +73,10 @@ function estimateChars(state: ResumeState): number {
   });
   // Projects
   state.projects.filter(p => p.active).forEach(p => {
-    chars += p.text.length + 20;
+    chars += (p.name?.length ?? 0) + (p.techStack?.length ?? 0) + 60;
+    (p.bullets ?? []).filter(b => b.active).forEach(b => {
+      chars += (b.text?.length ?? 0) + 20;
+    });
   });
   // Skills
   state.skillGroups.filter(sg => sg.active).forEach(sg => {
@@ -130,9 +133,13 @@ export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResul
 
   // Score projects
   const scoredProjects = state.projects
-    .map(p => ({ ...p, score: scoreText(p.text, keywords) }))
+    .map(p => ({ ...p, score: scoreText(
+      [p.name, p.category, p.techStack, ...(p.bullets ?? []).map(b => b.text)].filter(Boolean).join(' '),
+      keywords
+      ),
+    }))
     .sort((a, b) => b.score - a.score)
-    .map(p => ({ id: p.id, active: p.active, text: p.text }));
+    .map(p => ({ id: p.id, active: p.active, name: p.name, category: p.category, date: p.date, techStack: p.techStack, bullets: p.bullets }));
 
   // Build new state with sorted items, all initially active
   let working: ResumeState = {

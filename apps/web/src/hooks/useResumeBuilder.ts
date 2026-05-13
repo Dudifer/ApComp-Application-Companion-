@@ -143,12 +143,14 @@ export function useResumeBuilder(initialJob?: Job | null) {
     fetch(`${API}/resume/profile`)
       .then(r => r.json())
       .then((p: CvProfile) => {
-        if (!p) { setLoading(false); return; }
+        console.log('Profile fetch result:', p);
+        console.log('Has name:', p?.name);
+        console.log('Roles length:', p?.roles?.length);
+        if (!p || !p.name) { setLoading(false); return; }
         setProfile(p);
         const initial = buildInitialState(p);
+        console.log('Built initial state:', initial);  // ← add this
         setBaseState(initial);
-
-        // If a job was passed in, tailor immediately
         if (initialJob) {
           const result = tailorResumeForJob(initial, initialJob);
           setState(result.state);
@@ -157,9 +159,11 @@ export function useResumeBuilder(initialJob?: Job | null) {
           setState(initial);
         }
         setLoading(false);
+        console.log('Loading set to false');  // ← add this
       })
-      .catch(() => {
-        setError('Could not load profile. Please upload your CV first.');
+      .catch((err) => {
+        console.log('Fetch error:', err);  // ← add this
+        setError('Could not load profile.');
         setLoading(false);
       });
   }, []);
