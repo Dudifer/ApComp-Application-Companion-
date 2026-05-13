@@ -27,6 +27,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@prisma/adapter-pg": "^6.19.3",
     "@prisma/client": "^6.19.3",
+    "@apcomp/types": "workspace:*",
     "axios": "^1.15.2",
     "dotenv": "^17.4.2",
     "googleapis": "^171.4.0",
