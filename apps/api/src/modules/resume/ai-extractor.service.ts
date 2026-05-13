@@ -13,6 +13,12 @@ export class AiExtractorService {
 
 For each role, calculate durationMonths from the dates. If end date is missing, assume it is current (today: ${new Date().toISOString().slice(0, 7)}).
 
+IMPORTANT:
+- "Personal Projects" entries are NOT roles/jobs. Do NOT include them in the roles array.
+- Extract projects into the separate "projects" array with full structure.
+- Also extract technologies from Personal Projects and include them in the skills array.
+- For project-derived skills, set usedAt to ["project name"] and estimate monthsExperience as 3-6 months per project.
+
 Return ONLY valid JSON matching this exact structure (no markdown, no explanation):
 {
   "name": "string or null",
@@ -35,12 +41,18 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       "category": "language|framework|tool|practice|methodology",
       "monthsExperience": number (sum across all roles that used it),
       "proficiency": "beginner|intermediate|advanced|expert",
-      "usedAt": ["company names"]
+      "usedAt": ["company names", "project names"]
     }
   ],
-IMPORTANT: "Personal Projects" is NOT a role/job. Do not include it in the roles array.
-Leave project bullets out of role descriptions entirely — they will be extracted separately from the raw text.
-The roles array should ONLY contain actual paid employment or internship positions with a company name.
+  "projects": [
+    {
+      "name": "Project Name",
+      "category": "e.g. Computer Vision & Machine Learning",
+      "date": "e.g. Fall 2022",
+      "techStack": "Python - PyTorch - sklearn - NumPy",
+  "bullets": ["bullet 1", "bullet 2"]
+}
+
   "practices": ["list of engineering practices used overall"],
   "gapQuestions": [
     {
@@ -53,9 +65,9 @@ The roles array should ONLY contain actual paid employment or internship positio
   ],
   "isComplete": false
 }
-
+  
 Gap question rules:
-- Only ask about roles where technologies/stack are vague or missing
+- Only ask about roles and projects where technologies/stack are vague or missing
 - Ask about backend stack if only frontend is mentioned (or vice versa)
 - Ask about specific libraries if a language is mentioned without context (e.g. "Python" → ask data science vs web vs scripting)
 - Ask about testing practices if not mentioned
