@@ -1,4 +1,4 @@
-export type JobSource = 'adzuna' | 'jsearch';
+export type JobSource = 'adzuna' | 'jsearch' | 'manual';
 export type JobStatus = 'new' | 'saved' | 'dismissed' | 'applied';
 export type ContractTime = 'full_time' | 'part_time' | 'contractor' | 'intern' | 'unknown';
 export type ContractType = 'permanent' | 'contract' | 'unknown';
@@ -103,3 +103,33 @@ export interface JobFeedWeights {
   jsearch: number;
 }
 
+/**
+ * Payload sent from the Chrome extension to POST /jobs/capture.
+ * Only `title`, `company`, and `url` are required; the backend fills the rest.
+ */
+export interface CapturedJobInput {
+  title: string;
+  company: string;
+  url: string;
+
+  description?: string;
+  location?: string;
+  remote?: boolean;
+
+  salaryMin?: number;
+  salaryMax?: number;
+  salaryCurrency?: string;
+  salaryPeriod?: string;
+
+  employmentType?: string;
+  postedAt?: string;
+  companyLogo?: string;
+
+  tags?: string[];
+
+  rawHtml?: string;
+
+  sourceHost?: string;
+
+  extractor?: string;
+}

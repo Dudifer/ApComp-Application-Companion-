@@ -1,0 +1,9 @@
+{
+  "name": "@apcomp/extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ApComp Chrome extension — capture jobs from any company posting page.",
+  "scripts": {
+    "build": "echo \"No build step — load this folder unpacked at chrome://extensions.\""
+  }
+}

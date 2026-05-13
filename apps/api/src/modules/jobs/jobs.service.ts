@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Job, DismissedJob, JobFeedWeights } from '@apcomp/types';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { createHash } from 'crypto';
+import { Job, DismissedJob, JobFeedWeights, CapturedJobInput } from '@apcomp/types';
 import { AdzunaProvider } from './providers/adzuna.provider';
 import { JSearchProvider } from './providers/jsearch.provider';
 import { AiFilterService } from './ai-filter.service';
@@ -111,6 +112,7 @@ export class JobsService {
 
     return this.fetchAndProcess();
   }
+
   async searchJobs(params: {
     title: string;
     skills?: string;
@@ -160,7 +162,93 @@ export class JobsService {
 
     return filtered;
   }
- 
+
+  /**
+   * Capture a job from the Chrome extension. Normalizes the payload into a Job
+   * and saves it as a SavedJob so it shows up in /jobs/recommended.
+   */
+  async captureJob(input: CapturedJobInput): Promise<Job> {
+    if (!input?.title?.trim() || !input?.company?.trim() || !input?.url?.trim()) {
+      throw new BadRequestException('title, company, and url are required');
+    }
+
+    await this.ensureDevUser();
+
+    // Stable id from the URL so re-capturing the same page is idempotent.
+    const externalId = createHash('sha1').update(input.url).digest('hex').slice(0, 16);
+
+    const now = new Date();
+    // Compute remote first so location.displayName can fall back to 'Remote'
+    // when the title contains "remote" but no explicit location is provided.
+    const isRemote = input.remote ?? /remote/i.test((input.location ?? '') + ' ' + (input.title ?? ''));
+    const job: Job = {
+      id: `manual-${externalId}`,
+      externalId,
+      source: 'manual',
+
+      title: input.title.trim(),
+      company: input.company.trim(),
+      companyLogo: input.companyLogo,
+
+      location: {
+        displayName: input.location?.trim() || (isRemote ? 'Remote' : 'Unknown'),
+      },
+      remote: isRemote,
+
+      description: input.description?.trim() ?? '',
+      tags: input.tags?.filter(Boolean) ?? [],
+
+      url: input.url,
+      applyOptions: [{
+        publisher: input.sourceHost ?? 'Captured',
+        url: input.url,
+        isDirect: true,
+      }],
+      applyIsDirect: true,
+
+      contractTime: 'unknown',
+      contractType: 'unknown',
+      employmentType: input.employmentType,
+      publisher: input.sourceHost ?? 'manual',
+
+      salary: (input.salaryMin || input.salaryMax) ? {
+        min: input.salaryMin,
+        max: input.salaryMax,
+        currency: input.salaryCurrency ?? 'USD',
+        period: input.salaryPeriod,
+      } : undefined,
+
+      postedAt: input.postedAt ?? now.toISOString(),
+
+      // Captured jobs go to the top of the feed — assume relevant since the user picked them.
+      relevanceScore: 100,
+      status: 'saved',
+    };
+
+    // Persist forever-ish (1 year) — these are user-chosen, not auto-fetched.
+    const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    await this.prisma.savedJob.upsert({
+      where: {
+        userId_externalId_source: {
+          userId: DEV_USER_ID,
+          externalId,
+          source: 'manual',
+        },
+      },
+      update: { jobData: job as any, fetchedAt: now, expiresAt },
+      create: {
+        userId: DEV_USER_ID,
+        externalId,
+        source: 'manual',
+        jobData: job as any,
+        expiresAt,
+      },
+    });
+
+    this.logger.log(`Captured "${job.title}" @ ${job.company} from ${input.sourceHost ?? 'unknown'}`);
+    return job;
+  }
+
   private async fetchAndProcess(): Promise<Job[]> {
     const profile = await this.getCvProfile();
     const weights = await this.getWeights();
@@ -171,7 +259,6 @@ export class JobsService {
     const adzunaCount = Math.round(20 * weights.adzuna * 2);
     const jsearchCount = Math.round(2 * weights.jsearch * 2);
 
-    // Fetch using profile-derived queries
     const [adzunaJobs, jsearchJobs] = await Promise.all([
       this.adzuna.fetchJobs(queries[0], adzunaCount),
       this.jsearch.fetchJobs(queries[0], jsearchCount),
@@ -181,7 +268,6 @@ export class JobsService {
 
     const combined = this.deduplicate([...adzunaJobs, ...jsearchJobs]);
 
-    // Save raw to disk immediately
     this.jobCache.saveRawJobs(combined);
 
     const enriched = await this.enrichment.enrichJobs(combined);
@@ -189,7 +275,6 @@ export class JobsService {
 
     const dismissals = await this.getDismissals();
 
-    // Pass real profile to AI filter
     const filtered = await this.aiFilter.scoreAndFilter(enriched, dismissals, profile);
     this.logger.log(`${filtered.length} jobs after AI filtering`);
 

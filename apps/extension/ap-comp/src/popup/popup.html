@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Save to ApComp</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="ap-header">
+      <div class="ap-logo">Ap<span>Comp</span></div>
+      <button id="settings-btn" type="button" title="Settings" aria-label="Settings">⚙</button>
+    </header>
+
+    <section id="settings-panel" class="ap-section ap-section--settings hidden">
+      <label>
+        <span>API base URL</span>
+        <input id="api-base" type="url" placeholder="http://localhost:3000" />
+      </label>
+      <button id="save-settings" class="ap-btn ap-btn--secondary" type="button">Save</button>
+    </section>
+
+    <section id="form" class="ap-section">
+      <div id="status" class="ap-status">Extracting…</div>
+
+      <label>
+        <span>Title <em>*</em></span>
+        <input id="f-title" type="text" required />
+      </label>
+      <label>
+        <span>Company <em>*</em></span>
+        <input id="f-company" type="text" required />
+      </label>
+      <label>
+        <span>URL</span>
+        <input id="f-url" type="url" required />
+      </label>
+      <label>
+        <span>Location</span>
+        <input id="f-location" type="text" placeholder="e.g. San Francisco, CA" />
+      </label>
+      <div class="ap-row">
+        <label class="ap-grow">
+          <span>Salary min</span>
+          <input id="f-salary-min" type="number" min="0" step="1000" />
+        </label>
+        <label class="ap-grow">
+          <span>Salary max</span>
+          <input id="f-salary-max" type="number" min="0" step="1000" />
+        </label>
+      </div>
+      <label class="ap-row ap-row--checkbox">
+        <input id="f-remote" type="checkbox" />
+        <span>Remote</span>
+      </label>
+      <label>
+        <span>Description</span>
+        <textarea id="f-description" rows="4"></textarea>
+      </label>
+
+      <div class="ap-actions">
+        <button id="save-btn" class="ap-btn" type="button">Save to ApComp</button>
+      </div>
+    </section>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
