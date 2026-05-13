@@ -5,8 +5,11 @@ import { useApplications, STATUS_CONFIG } from './hooks/useApplications';
 import AllApplicationsPage from './pages/AllApplicationsPage';
 import ResumeBuilderPage from './pages/ResumeBuilderPage';
 import { useJobs } from './hooks/useJobs';
+import JobSearchPage from './pages/JobSearchPage';
+import ResumeDemoPage from './pages/ResumeDemoPage';
 
-const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Board", "Practice"];
+
+const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Resume Demo", "Job Search", "Practice"];
  
 const STATUS_COLORS: Record<string, string> = {
   Applied: "status-applied",
@@ -445,9 +448,14 @@ export default function App() {
       <main style={{ padding: active === 'Resume Builder' ? 0 : undefined }}>
         {active === 'Applications' ? (
           <AllApplicationsPage />
+        ) : active === 'Resume Demo' ? (
+          <ResumeDemoPage />
         ) : active === 'Resume Builder' ? (
           <ResumeBuilderPage initialJob={tailorJob} />
+        ) : active === 'Job Search' ? (
+          <JobSearchPage onJobSelect={job => { setSelectedJob(job); }}/>
         ) : (
+          
           <>
             <div className="greeting">Good evening, John.</div>
             <div className="greeting-sub">Here's where things stand today.</div>

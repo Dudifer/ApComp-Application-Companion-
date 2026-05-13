@@ -111,7 +111,56 @@ export class JobsService {
 
     return this.fetchAndProcess();
   }
+  async searchJobs(params: {
+    title: string;
+    skills?: string;
+    location?: string;
+    remote?: boolean;
+  }): Promise<Job[]> {
+    await this.ensureDevUser();
 
+    // Build query string from params
+    const skillsPart = params.skills ? ` ${params.skills.split(',')[0].trim()}` : '';
+    const query = `${params.title}${skillsPart}`;
+    const locationSuffix = params.location ? ` in ${params.location}` : ' in United States';
+
+    this.logger.log(`Searching: "${query}"${locationSuffix}`);
+
+    const profile = await this.getCvProfile();
+    const weights = await this.getWeights();
+    const adzunaCount = Math.round(20 * weights.adzuna * 2);
+    const jsearchCount = Math.round(2 * weights.jsearch * 2);
+
+    const [adzunaJobs, jsearchJobs] = await Promise.all([
+      this.adzuna.fetchJobs(query, adzunaCount),
+      this.jsearch.fetchJobs(query + locationSuffix, jsearchCount),
+    ]);
+
+    this.logger.log(`Fetched ${adzunaJobs.length} Adzuna + ${jsearchJobs.length} JSearch`);
+
+    const combined = this.deduplicate([...adzunaJobs, ...jsearchJobs]);
+
+    // Save to disk immediately in case of crash
+    this.jobCache.saveRawJobs(combined);
+
+    const enriched = await this.enrichment.enrichJobs(combined);
+    this.jobCache.saveRawJobs(enriched);
+
+    const dismissals = await this.getDismissals();
+    const filtered = await this.aiFilter.scoreAndFilter(enriched, dismissals, profile);
+
+    this.logger.log(`${filtered.length} jobs after filtering`);
+
+    // Save to disk cache (final)
+    this.jobCache.saveRawJobs(filtered);
+
+    // Save to DB — these will also show in the home page recommended box
+    await this.saveJobsToDB(filtered);
+    this.jobCache.clearCache();
+
+    return filtered;
+  }
+ 
   private async fetchAndProcess(): Promise<Job[]> {
     const profile = await this.getCvProfile();
     const weights = await this.getWeights();
