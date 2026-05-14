@@ -489,15 +489,27 @@ export default function App() {
               <div className="section-header">
                 <div className="section-title">Pending Applications</div>
                 <div className="section-count">{applications.length} active</div>
-                {!gmailConnected && (
-                  <button onClick={connectGmail} style={{
-                    fontSize: 12, padding: '4px 12px', borderRadius: 8,
-                    background: 'var(--ink)', color: 'white', border: 'none',
-                    cursor: 'pointer', fontFamily: 'var(--font-body)',
-                  }}>
-                    Connect Gmail
-                  </button>
-                )}
+                {!gmailConnected ? (
+                <button onClick={connectGmail} style={{
+                  fontSize: 12, padding: '4px 12px', borderRadius: 8,
+                  background: 'var(--ink)', color: 'white', border: 'none',
+                  cursor: 'pointer', fontFamily: 'var(--font-body)',
+                }}>
+                  Connect Gmail
+                </button>
+              ) : (
+                <button onClick={() => {
+                  fetch('http://localhost:3000/applications/scrape', { method: 'POST' })
+                    .then(() => window.location.reload());
+                }} style={{
+                  fontSize: 12, padding: '4px 12px', borderRadius: 8,
+                  background: 'none', color: 'var(--ink-secondary)',
+                  border: '1px solid var(--border)',
+                  cursor: 'pointer', fontFamily: 'var(--font-body)',
+                }}>
+                  ↻ Refresh emails
+                </button>
+              )}
                 <a className="section-link" onClick={() => setActive('Applications')}>View all →</a>
               </div>
             </div>
