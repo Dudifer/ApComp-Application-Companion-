@@ -4,8 +4,9 @@
  * - Runs once the page settles, asks the extractors whether the current page
  *   "looks like" a job posting, and if so injects a small floating "Save to
  *   ApComp" button.
- * - Responds to APCOMP_EXTRACT messages from the popup so it can show the
- *   user the parsed fields without re-running the extractor.
+ * - Retries with backoff so SPA-rendered pages (Greenhouse job-boards,
+ *   Workday, LinkedIn) eventually get the button.
+ * - Responds to APCOMP_EXTRACT messages from the popup.
  * - On capture, posts to the background service worker which forwards to the
  *   API.
  *
@@ -19,7 +20,6 @@
   const extractors = window.__apcompExtractors;
   if (!extractors) return;
 
-  // Don't inject inside ourselves / iframes that aren't the top window.
   const isTopFrame = window === window.top;
 
   function getExtracted() {
@@ -34,7 +34,6 @@
   function looksLikeJobPosting(extracted) {
     if (!extracted) return false;
     if (extracted.partial) return false;
-    // Require at least title + company.
     return !!(extracted.title && extracted.company);
   }
 
@@ -75,7 +74,7 @@
           payload,
         });
         if (resp?.ok) {
-          showToast(`Saved “${resp.job.title}” to ApComp`, true);
+          showToast(`Saved "${resp.job.title}" to ApComp`, true);
           btn.classList.add('apcomp-fab--saved');
           setTimeout(() => btn.classList.remove('apcomp-fab--saved'), 1500);
         } else {
@@ -92,13 +91,35 @@
     document.body.appendChild(btn);
   }
 
+  // Pages like Greenhouse's job-boards.greenhouse.io and Workday render the
+  // job content asynchronously after document_idle. Retry with backoff up to
+  // ~18s total before giving up.
+  const INJECT_RETRY_DELAYS_MS = [400, 1200, 2500, 5000, 9000];
+  let injectAttempt = 0;
+
   function maybeInject() {
     if (!isTopFrame) return;
+    if (document.getElementById('apcomp-fab')) return;
+
     const extracted = getExtracted();
-    if (looksLikeJobPosting(extracted)) injectButton();
+    if (looksLikeJobPosting(extracted)) {
+      injectButton();
+      injectAttempt = 0;
+      return;
+    }
+    if (injectAttempt < INJECT_RETRY_DELAYS_MS.length) {
+      const delay = INJECT_RETRY_DELAYS_MS[injectAttempt++];
+      setTimeout(maybeInject, delay);
+    }
   }
 
-  // Inject styles via a <style> tag (avoid extra CSS file fetch race conditions).
+  function resetAndRetry() {
+    injectAttempt = 0;
+    const existing = document.getElementById('apcomp-fab');
+    if (existing) existing.remove();
+    setTimeout(maybeInject, 400);
+  }
+
   function injectStyles() {
     if (document.getElementById('apcomp-style')) return;
     const style = document.createElement('style');
@@ -165,23 +186,21 @@
   }
 
   injectStyles();
-  // Some SPAs (LinkedIn, Workday) render after navigation events without a full
-  // page load — re-check when the URL changes.
+
+  // Watch for SPA URL changes (LinkedIn, Workday) and re-run extraction.
   let lastUrl = location.href;
   const observer = new MutationObserver(() => {
     if (location.href !== lastUrl) {
       lastUrl = location.href;
-      const existing = document.getElementById('apcomp-fab');
-      if (existing) existing.remove();
-      setTimeout(maybeInject, 800);
+      resetAndRetry();
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
-  // Initial pass.
-  setTimeout(maybeInject, 600);
+  // Initial pass — maybeInject() retries itself with backoff if extraction
+  // doesn't produce a complete result yet.
+  setTimeout(maybeInject, 400);
 
-  // Respond to popup requests.
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'APCOMP_EXTRACT') {
       sendResponse({ extracted: getExtracted() });

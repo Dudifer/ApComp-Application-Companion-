@@ -65,7 +65,6 @@ export class JobsService {
 
     const queries: string[] = [];
 
-    // Use most recent job titles
     const recentTitles = profile.roles
       .sort((a, b) => (b.startDate > a.startDate ? 1 : -1))
       .slice(0, 2)
@@ -73,7 +72,6 @@ export class JobsService {
 
     queries.push(...recentTitles);
 
-    // Add skill-based queries from top skills
     const topSkills = profile.skills
       ?.sort((a, b) => b.monthsExperience - a.monthsExperience)
       .slice(0, 3)
@@ -83,14 +81,12 @@ export class JobsService {
       queries.push(`${topSkills[0]} developer`);
     }
 
-    // Deduplicate and limit
     return [...new Set(queries)].slice(0, 3);
   }
 
   async getRecommendedJobs(): Promise<Job[]> {
     await this.ensureDevUser();
 
-    // Return cached DB jobs if still fresh
     const saved = await this.prisma.savedJob.findMany({
       where: { userId: DEV_USER_ID, expiresAt: { gt: new Date() } },
     });
@@ -100,7 +96,6 @@ export class JobsService {
       return saved.map(s => s.jobData as unknown as Job);
     }
 
-    // Check disk cache fallback
     const diskCached = this.jobCache.loadRawJobs();
     if (diskCached) {
       this.logger.log(`Returning ${diskCached.length} jobs from disk cache`);
@@ -121,7 +116,6 @@ export class JobsService {
   }): Promise<Job[]> {
     await this.ensureDevUser();
 
-    // Build query string from params
     const skillsPart = params.skills ? ` ${params.skills.split(',')[0].trim()}` : '';
     const query = `${params.title}${skillsPart}`;
     const locationSuffix = params.location ? ` in ${params.location}` : ' in United States';
@@ -141,8 +135,6 @@ export class JobsService {
     this.logger.log(`Fetched ${adzunaJobs.length} Adzuna + ${jsearchJobs.length} JSearch`);
 
     const combined = this.deduplicate([...adzunaJobs, ...jsearchJobs]);
-
-    // Save to disk immediately in case of crash
     this.jobCache.saveRawJobs(combined);
 
     const enriched = await this.enrichment.enrichJobs(combined);
@@ -153,10 +145,8 @@ export class JobsService {
 
     this.logger.log(`${filtered.length} jobs after filtering`);
 
-    // Save to disk cache (final)
     this.jobCache.saveRawJobs(filtered);
 
-    // Save to DB — these will also show in the home page recommended box
     await this.saveJobsToDB(filtered);
     this.jobCache.clearCache();
 
@@ -178,9 +168,19 @@ export class JobsService {
     const externalId = createHash('sha1').update(input.url).digest('hex').slice(0, 16);
 
     const now = new Date();
-    // Compute remote first so location.displayName can fall back to 'Remote'
-    // when the title contains "remote" but no explicit location is provided.
     const isRemote = input.remote ?? /remote/i.test((input.location ?? '') + ' ' + (input.title ?? ''));
+
+    // Derive a candidate companyWebsite from the captured URL so the "Find
+    // Contacts" flow has something to work with. ContactFinder normalizes
+    // before calling Hunter (strips careers./jobs./etc.).
+    let companyWebsite: string | undefined;
+    try {
+      const u = new URL(input.url);
+      companyWebsite = `${u.protocol}//${u.hostname}`;
+    } catch {
+      companyWebsite = undefined;
+    }
+
     const job: Job = {
       id: `manual-${externalId}`,
       externalId,
@@ -189,6 +189,7 @@ export class JobsService {
       title: input.title.trim(),
       company: input.company.trim(),
       companyLogo: input.companyLogo,
+      companyWebsite,
 
       location: {
         displayName: input.location?.trim() || (isRemote ? 'Remote' : 'Unknown'),
@@ -220,12 +221,10 @@ export class JobsService {
 
       postedAt: input.postedAt ?? now.toISOString(),
 
-      // Captured jobs go to the top of the feed — assume relevant since the user picked them.
       relevanceScore: 100,
       status: 'saved',
     };
 
-    // Persist forever-ish (1 year) — these are user-chosen, not auto-fetched.
     const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
     await this.prisma.savedJob.upsert({
       where: {
@@ -267,7 +266,6 @@ export class JobsService {
     this.logger.log(`Fetched ${adzunaJobs.length} Adzuna + ${jsearchJobs.length} JSearch jobs`);
 
     const combined = this.deduplicate([...adzunaJobs, ...jsearchJobs]);
-
     this.jobCache.saveRawJobs(combined);
 
     const enriched = await this.enrichment.enrichJobs(combined);

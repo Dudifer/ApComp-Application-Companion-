@@ -25,6 +25,29 @@
     return undefined;
   }
 
+  /** Reads `content` attribute (for meta tags); falls back to textContent. */
+  function pickAttr(selectors, attr) {
+    for (const sel of selectors) {
+      const el = document.querySelector(sel);
+      if (el) {
+        const v = el.getAttribute(attr) || el.textContent;
+        const t = trim(v);
+        if (t) return t;
+      }
+    }
+    return undefined;
+  }
+
+  function prettifyHandle(handle) {
+    try {
+      const decoded = decodeURIComponent(handle);
+      const cleaned = decoded.replace(/[-_]+/g, ' ').trim();
+      return cleaned.replace(/\b\w/g, (c) => c.toUpperCase());
+    } catch (_) {
+      return handle;
+    }
+  }
+
   function findJsonLd() {
     const blocks = document.querySelectorAll('script[type="application/ld+json"]');
     for (const b of blocks) {
@@ -49,19 +72,24 @@
   function parseSalary(input) {
     if (!input) return {};
     const s = String(input).replace(/\s+/g, ' ');
-    // Range like "$120,000 - $160,000" or "120k - 160k"
     const range = s.match(/\$?\s?(\d{2,3})[,.]?(\d{3})?\s*[kK]?\s*[-–to]+\s*\$?\s?(\d{2,3})[,.]?(\d{3})?\s*[kK]?/);
     if (range) {
-      const mk = (a, b, hasK) => {
-        const n = parseInt((a || '') + (b || ''), 10);
-        return hasK ? n * 1000 : n;
-      };
       const hasK = /[kK]/.test(s);
-      const min = mk(range[1], range[2], hasK || !range[2]);
-      const max = mk(range[3], range[4], hasK || !range[4]);
+      const mk = (a, b) => {
+        const n = parseInt((a || '') + (b || ''), 10);
+        return hasK || !b ? n * 1000 : n;
+      };
+      const min = mk(range[1], range[2]);
+      const max = mk(range[3], range[4]);
       return { salaryMin: min, salaryMax: max, salaryCurrency: /€/.test(s) ? 'EUR' : 'USD' };
     }
     return {};
+  }
+
+  function stripHtml(html) {
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    return div.textContent || '';
   }
 
   // --------- Generic (JSON-LD + meta tags) ---------
@@ -104,8 +132,8 @@
     }
 
     // Fall back to OpenGraph + heuristics.
-    const ogTitle = document.querySelector('meta[property="og:title"]')?.content;
-    const ogSite = document.querySelector('meta[property="og:site_name"]')?.content;
+    const ogTitle = pickAttr(['meta[property="og:title"]'], 'content');
+    const ogSite = pickAttr(['meta[property="og:site_name"]'], 'content');
     const h1 = textOf(document.querySelector('h1'));
     const bodyText = trim(document.body?.innerText)?.slice(0, 8000);
 
@@ -115,12 +143,6 @@
       description: bodyText,
       extractor: 'generic-fallback',
     };
-  }
-
-  function stripHtml(html) {
-    const div = document.createElement('div');
-    div.innerHTML = html;
-    return div.textContent || '';
   }
 
   // --------- LinkedIn ---------
@@ -198,13 +220,50 @@
   }
 
   // --------- Greenhouse ---------
+  // Handles both the legacy boards.greenhouse.io layout AND the modern
+  // job-boards.greenhouse.io/<company>/jobs/<id> layout which uses
+  // "section-header" classes and doesn't expose a stable company element.
   function extractGreenhouse() {
-    if (!/greenhouse\.io|boards\.greenhouse\.io/.test(location.host)) return null;
-    const title = pick(['.app-title', '#header h1', 'h1.app-title', 'h1']);
-    const company = pick(['.company-name', '#header .company-name', 'meta[property="og:site_name"]'])
-      || document.querySelector('meta[property="og:site_name"]')?.content;
-    const location_ = pick(['.location', '#header .location']);
-    const description = pick(['#content', '.job__description', '.content']);
+    if (!/greenhouse\.io/.test(location.host)) return null;
+
+    const title = pick([
+      // modern job-boards layout
+      'h1.section-header--large',
+      'h1[class*="section-header"]',
+      // legacy
+      '.app-title',
+      'h1.app-title',
+      '#header h1',
+      // last-resort
+      'h1',
+    ]);
+
+    // Company name on modern Greenhouse pages comes from the URL path:
+    // /<company-handle>/jobs/<id>
+    const pathMatch = location.pathname.match(/^\/([^\/]+)\/jobs?\b/i);
+    const fromPath = pathMatch ? prettifyHandle(pathMatch[1]) : undefined;
+
+    const company = pick(['.company-name', '#header .company-name'])
+      || pickAttr(['meta[property="og:site_name"]'], 'content')
+      || fromPath;
+
+    const location_ = pick([
+      'h2.section-header--medium',
+      '.section-header--medium',
+      '.location',
+      '#header .location',
+      '[class*="job-post-location"]',
+    ]);
+
+    const description = pick([
+      '#content',
+      '.job__description',
+      '.body--medium',
+      '.body',
+      '[class*="job-description"]',
+      'main',
+    ]);
+
     if (!title) return null;
     return { title, company, location: location_, description, extractor: 'greenhouse' };
   }
@@ -214,11 +273,10 @@
     if (!/jobs\.lever\.co|lever\.co/.test(location.host)) return null;
     const title = pick(['.posting-headline h2', '.posting-headline h1', 'h2']);
     const company = (() => {
-      const og = document.querySelector('meta[property="og:site_name"]')?.content;
+      const og = pickAttr(['meta[property="og:site_name"]'], 'content');
       if (og) return og;
-      // jobs.lever.co/<company>/<id>
       const m = location.pathname.match(/^\/([^\/]+)/);
-      return m ? decodeURIComponent(m[1]).replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : undefined;
+      return m ? prettifyHandle(m[1]) : undefined;
     })();
     const location_ = pick(['.posting-categories .location', '.location']);
     const employmentType = pick(['.posting-categories .commitment']);
@@ -232,9 +290,8 @@
     if (!/workday(jobs)?\.com|myworkdayjobs\.com/.test(location.host)) return null;
     const title = pick(['[data-automation-id="jobPostingHeader"]', 'h1', 'h2']);
     const company = (() => {
-      // Workday URL pattern: <company>.wd1.myworkdayjobs.com or <company>.workday.com
       const host = location.host.split('.')[0];
-      return host ? host.charAt(0).toUpperCase() + host.slice(1) : undefined;
+      return host ? prettifyHandle(host) : undefined;
     })();
     const location_ = pick(['[data-automation-id="locations"]', '[data-automation-id="jobPostingLocation"]']);
     const description = pick(['[data-automation-id="jobPostingDescription"]', '.WLLO']);
@@ -245,10 +302,10 @@
   // --------- Ashby ---------
   function extractAshby() {
     if (!/jobs\.ashbyhq\.com|ashbyhq\.com/.test(location.host)) return null;
-    const title = pick(['h1', '._title_*']);
-    const description = pick(['._descriptionText_*', '[class*="descriptionText"]', 'main']);
+    const title = pick(['h1', '[class*="_title_"]']);
+    const description = pick(['[class*="_descriptionText_"]', '[class*="descriptionText"]', 'main']);
     const m = location.pathname.match(/^\/([^\/]+)/);
-    const company = m ? decodeURIComponent(m[1]).replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : undefined;
+    const company = m ? prettifyHandle(m[1]) : undefined;
     if (!title) return null;
     return { title, company, description, extractor: 'ashby' };
   }
@@ -270,8 +327,6 @@
       }
     }
 
-    // Always also run the generic one and use it to fill in any gaps the
-    // site-specific extractor missed (description, salary, posted date).
     let fallback;
     try { fallback = extractGeneric(); } catch (_) { fallback = null; }
 
@@ -282,7 +337,6 @@
       ...(result || {}),
     };
 
-    // If still no title/company, return null so the UI can show a manual form.
     if (!merged.title || !merged.company) return { url, sourceHost, partial: true, ...merged };
 
     return merged;

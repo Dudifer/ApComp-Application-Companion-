@@ -17,6 +17,8 @@ interface ContactResult {
     linkedin?: string;
   }[];
   fromCache: boolean;
+  /** Non-fatal message from the backend (e.g. job-board hostname couldn't be normalized). */
+  warning?: string;
 }
 
 interface JobDetailPanelProps {
