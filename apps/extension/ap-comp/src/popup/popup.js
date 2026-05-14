@@ -1,13 +1,15 @@
 /**
  * ApComp popup.
  *
- * Asks the content script for the current page's extracted job, lets the user
- * edit the fields, and sends the result to the background worker for posting
- * to the API.
+ *  - "Save job" tab: extracts the active tab's job posting and lets the user
+ *    edit fields before sending POST /jobs/capture.
+ *  - "Auto-fill" tab: triggers the autofiller on the active tab.
  */
 
 const $ = (id) => document.getElementById(id);
+
 const els = {
+  // capture
   status: $('status'),
   title: $('f-title'),
   company: $('f-company'),
@@ -18,17 +20,36 @@ const els = {
   remote: $('f-remote'),
   description: $('f-description'),
   saveBtn: $('save-btn'),
+
+  // settings
   settingsBtn: $('settings-btn'),
   settingsPanel: $('settings-panel'),
   apiBase: $('api-base'),
   saveSettings: $('save-settings'),
+
+  // tabs
+  tabCapture: $('tab-capture'),
+  tabAutofill: $('tab-autofill'),
+  panelCapture: $('capture-panel'),
+  panelAutofill: $('autofill-panel'),
+
+  // autofill
+  autofillStatus: $('autofill-status'),
+  autofillBtn: $('autofill-btn'),
+  autofillResult: $('autofill-result'),
+  rRoles: $('r-roles'),
+  rOther: $('r-other'),
+  rSkipped: $('r-skipped'),
+  rDetails: $('r-details'),
 };
 
 let lastExtracted = null;
 
-function setStatus(text, kind) {
-  els.status.textContent = text;
-  els.status.className = 'ap-status' + (kind ? ` ap-status--${kind}` : '');
+// ---------------- Helpers ----------------
+
+function setStatus(node, text, kind) {
+  node.textContent = text;
+  node.className = 'ap-status' + (kind ? ` ap-status--${kind}` : '');
 }
 
 function fillForm(data) {
@@ -62,36 +83,45 @@ async function getActiveTab() {
   return tab;
 }
 
+// ---------------- Tabs ----------------
+
+function switchTab(name) {
+  const isCapture = name === 'capture';
+  els.tabCapture.classList.toggle('ap-tab--active', isCapture);
+  els.tabAutofill.classList.toggle('ap-tab--active', !isCapture);
+  els.panelCapture.classList.toggle('hidden', !isCapture);
+  els.panelAutofill.classList.toggle('hidden', isCapture);
+}
+
+els.tabCapture.addEventListener('click', () => switchTab('capture'));
+els.tabAutofill.addEventListener('click', () => switchTab('autofill'));
+
+// ---------------- Capture ----------------
+
 async function extract() {
-  setStatus('Extracting…');
+  setStatus(els.status, 'Extracting…');
   try {
     const tab = await getActiveTab();
-    if (!tab?.id) {
-      setStatus('No active tab.', 'err');
-      return;
-    }
+    if (!tab?.id) { setStatus(els.status, 'No active tab.', 'err'); return; }
 
-    // Skip extension/chrome:// pages — the content script can't run there.
     if (!/^https?:/i.test(tab.url ?? '')) {
-      setStatus('This page is not capturable. Enter details manually.', 'err');
+      setStatus(els.status, 'This page is not capturable. Enter details manually.', 'err');
       fillForm({ url: tab.url });
       return;
     }
 
-    // Ask the content script.
     let response;
     try {
       response = await chrome.tabs.sendMessage(tab.id, { type: 'APCOMP_EXTRACT' });
-    } catch (err) {
-      // Content script may not have loaded — inject and retry.
+    } catch {
       try {
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          files: ['src/extractors/index.js', 'src/content.js'],
+          files: ['src/extractors/index.js', 'src/autofiller/index.js', 'src/content.js'],
         });
         response = await chrome.tabs.sendMessage(tab.id, { type: 'APCOMP_EXTRACT' });
       } catch (err2) {
-        setStatus(`Couldn't read page: ${err2.message}`, 'err');
+        setStatus(els.status, `Couldn't read page: ${err2.message}`, 'err');
         fillForm({ url: tab.url });
         return;
       }
@@ -102,37 +132,84 @@ async function extract() {
     fillForm(extracted);
 
     if (extracted.partial || !extracted.title || !extracted.company) {
-      setStatus('Couldn\'t auto-detect everything. Edit fields below.', 'err');
+      setStatus(els.status, "Couldn't auto-detect everything. Edit fields below.", 'err');
     } else {
-      setStatus(`Detected via ${extracted.extractor ?? 'generic'}. Review and save.`, 'ok');
+      setStatus(els.status, `Detected via ${extracted.extractor ?? 'generic'}. Review and save.`, 'ok');
     }
   } catch (err) {
-    setStatus(`Error: ${err.message}`, 'err');
+    setStatus(els.status, `Error: ${err.message}`, 'err');
   }
 }
 
 async function save() {
   if (!els.title.value.trim() || !els.company.value.trim() || !els.url.value.trim()) {
-    setStatus('Title, company, and URL are required.', 'err');
+    setStatus(els.status, 'Title, company, and URL are required.', 'err');
     return;
   }
   els.saveBtn.disabled = true;
-  setStatus('Saving…');
+  setStatus(els.status, 'Saving…');
   try {
     const payload = buildPayload();
     const resp = await chrome.runtime.sendMessage({ type: 'APCOMP_CAPTURE', payload });
     if (resp?.ok) {
-      setStatus(`Saved "${resp.job.title}" to ApComp.`, 'ok');
+      setStatus(els.status, `Saved "${resp.job.title}" to ApComp.`, 'ok');
       setTimeout(() => window.close(), 1000);
     } else {
-      setStatus(`Save failed: ${resp?.error ?? 'unknown'}`, 'err');
+      setStatus(els.status, `Save failed: ${resp?.error ?? 'unknown'}`, 'err');
     }
   } catch (err) {
-    setStatus(`Save failed: ${err.message}`, 'err');
+    setStatus(els.status, `Save failed: ${err.message}`, 'err');
   } finally {
     els.saveBtn.disabled = false;
   }
 }
+
+// ---------------- Auto-fill ----------------
+
+async function runAutoFill() {
+  els.autofillBtn.disabled = true;
+  setStatus(els.autofillStatus, 'Fetching CV and filling form…');
+  els.autofillResult.classList.add('hidden');
+
+  try {
+    const tab = await getActiveTab();
+    if (!tab?.id) {
+      setStatus(els.autofillStatus, 'No active tab.', 'err');
+      return;
+    }
+    if (!/^https?:/i.test(tab.url ?? '')) {
+      setStatus(els.autofillStatus, 'Auto-fill only works on web pages.', 'err');
+      return;
+    }
+
+    // The background worker fetches the profile and forwards the call to the
+    // active tab's content script.
+    const resp = await chrome.runtime.sendMessage({ type: 'APCOMP_TRIGGER_AUTOFILL' });
+    if (!resp?.ok) {
+      setStatus(els.autofillStatus, `Auto-fill failed: ${resp?.error ?? 'unknown'}`, 'err');
+      return;
+    }
+
+    const r = resp.result ?? {};
+    const idFills = (r.filled ?? []).filter((s) => !s.startsWith('role#') && !s.startsWith('q:')).length;
+    const qFills = (r.filled ?? []).filter((s) => s.startsWith('q:')).length;
+
+    els.rRoles.textContent = `${r.rolesFilled ?? 0} / ${r.rolesAttempted ?? 0}`;
+    els.rOther.textContent = `${idFills + qFills} (${idFills} identity, ${qFills} hardcoded)`;
+    els.rSkipped.textContent = String((r.skipped ?? []).length);
+    els.rDetails.textContent = JSON.stringify(r, null, 2);
+    els.autofillResult.classList.remove('hidden');
+
+    const ok = (r.errors ?? []).length === 0;
+    setStatus(els.autofillStatus, ok ? 'Done — review the form before submitting.' : 'Done with warnings — see details.', ok ? 'ok' : 'err');
+  } catch (err) {
+    setStatus(els.autofillStatus, `Auto-fill failed: ${err.message}`, 'err');
+  } finally {
+    els.autofillBtn.disabled = false;
+  }
+}
+
+// ---------------- Settings ----------------
 
 async function toggleSettings() {
   els.settingsPanel.classList.toggle('hidden');
@@ -146,11 +223,14 @@ async function saveSettings() {
   const apiBase = els.apiBase.value.trim();
   if (!apiBase) return;
   await chrome.runtime.sendMessage({ type: 'APCOMP_SET_API_BASE', apiBase });
-  setStatus('API base saved.', 'ok');
+  setStatus(els.status, 'API base saved.', 'ok');
   els.settingsPanel.classList.add('hidden');
 }
 
+// ---------------- Wiring ----------------
+
 els.saveBtn.addEventListener('click', save);
+els.autofillBtn.addEventListener('click', runAutoFill);
 els.settingsBtn.addEventListener('click', toggleSettings);
 els.saveSettings.addEventListener('click', saveSettings);
 document.addEventListener('DOMContentLoaded', extract);

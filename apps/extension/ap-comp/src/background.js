@@ -6,7 +6,7 @@
  *    and the ApComp API.
  *  - Persist the API base URL in chrome.storage so the user can point at a
  *    deployed instance later.
- *  - Echo helpful badge state when a capture succeeds / fails.
+ *  - Echo helpful badge state when a capture / auto-fill succeeds / fails.
  */
 
 const DEFAULT_API_BASE = 'http://localhost:3000';
@@ -30,13 +30,23 @@ async function postCapture(payload) {
   return res.json();
 }
 
+async function getCvProfile() {
+  const base = await getApiBase();
+  const res = await fetch(`${base}/resume/profile`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`API ${res.status}: ${text || res.statusText}`);
+  }
+  return res.json();
+}
+
 function flashBadge(tabId, text, color) {
   try {
     chrome.action.setBadgeBackgroundColor({ color });
     chrome.action.setBadgeText({ text, tabId });
     setTimeout(() => chrome.action.setBadgeText({ text: '', tabId }), 2500);
   } catch (_) {
-    // Tab may have closed already — ignore.
+    /* tab may have closed already */
   }
 }
 
@@ -53,7 +63,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         flashBadge(sender.tab?.id, '!', '#c9622f');
         sendResponse({ ok: false, error: err.message });
       });
-    return true; // async response
+    return true;
+  }
+
+  if (message.type === 'APCOMP_GET_PROFILE') {
+    getCvProfile()
+      .then((profile) => sendResponse({ ok: true, profile }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
   }
 
   if (message.type === 'APCOMP_GET_API_BASE') {
@@ -66,10 +83,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  // Forward an auto-fill trigger from the popup to the active tab's content
+  // script. The content script does the actual DOM manipulation since it's
+  // the only place with page-DOM access.
+  if (message.type === 'APCOMP_TRIGGER_AUTOFILL') {
+    (async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) throw new Error('No active tab.');
+        const profile = await getCvProfile();
+        const resp = await chrome.tabs.sendMessage(tab.id, {
+          type: 'APCOMP_AUTOFILL',
+          profile,
+        });
+        if (resp?.ok) flashBadge(tab.id, '✓', '#2d7d4f');
+        else flashBadge(tab.id, '!', '#c9622f');
+        sendResponse(resp ?? { ok: false, error: 'No response from content script' });
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message });
+      }
+    })();
+    return true;
+  }
+
   return false;
 });
 
-// First install — seed the API base so popup settings show a value.
 chrome.runtime.onInstalled.addListener(async () => {
   const { apiBase } = await chrome.storage.sync.get('apiBase');
   if (!apiBase) await chrome.storage.sync.set({ apiBase: DEFAULT_API_BASE });

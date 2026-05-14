@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "ApComp — Save Job",
-  "version": "0.1.0",
-  "description": "Capture the job posting on the current tab and add it to your ApComp dashboard.",
+  "name": "ApComp — Save Job & Auto-fill",
+  "version": "0.2.0",
+  "description": "Capture jobs into your ApComp dashboard and auto-fill applications using your uploaded CV.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
     "http://localhost:3000/*",
@@ -31,7 +31,11 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/extractors/index.js", "src/content.js"],
+      "js": [
+        "src/extractors/index.js",
+        "src/autofiller/index.js",
+        "src/content.js"
+      ],
       "run_at": "document_idle"
     }
   ],

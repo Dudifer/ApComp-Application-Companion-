@@ -19,7 +19,13 @@
       <button id="save-settings" class="ap-btn ap-btn--secondary" type="button">Save</button>
     </section>
 
-    <section id="form" class="ap-section">
+    <nav class="ap-tabs">
+      <button id="tab-capture" class="ap-tab ap-tab--active" type="button" data-tab="capture">Save job</button>
+      <button id="tab-autofill" class="ap-tab" type="button" data-tab="autofill">Auto-fill</button>
+    </nav>
+
+    <!-- ============ Capture (existing) ============ -->
+    <section id="capture-panel" class="ap-section">
       <div id="status" class="ap-status">Extracting…</div>
 
       <label>
@@ -59,6 +65,27 @@
 
       <div class="ap-actions">
         <button id="save-btn" class="ap-btn" type="button">Save to ApComp</button>
+      </div>
+    </section>
+
+    <!-- ============ Auto-fill ============ -->
+    <section id="autofill-panel" class="ap-section hidden">
+      <div id="autofill-status" class="ap-status">
+        Click below to fill out the application on the current tab using your uploaded CV.
+      </div>
+
+      <div class="ap-actions ap-actions--column">
+        <button id="autofill-btn" class="ap-btn" type="button">Auto-fill this application</button>
+      </div>
+
+      <div id="autofill-result" class="ap-autofill-result hidden">
+        <div class="ap-autofill-result__line"><strong>Roles filled:</strong> <span id="r-roles">0</span></div>
+        <div class="ap-autofill-result__line"><strong>Other fields:</strong> <span id="r-other">0</span></div>
+        <div class="ap-autofill-result__line"><strong>Skipped:</strong> <span id="r-skipped">0</span></div>
+        <details>
+          <summary>Details</summary>
+          <pre id="r-details"></pre>
+        </details>
       </div>
     </section>
 

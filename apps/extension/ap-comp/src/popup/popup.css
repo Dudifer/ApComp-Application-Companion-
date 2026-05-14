@@ -16,7 +16,7 @@
 
 body {
   margin: 0;
-  width: 360px;
+  width: 380px;
   font-family: 'DM Sans', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   font-size: 13px;
   color: var(--ink);
@@ -52,6 +52,25 @@ body {
   font-size: 14px;
 }
 #settings-btn:hover { color: var(--ink); }
+
+.ap-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  background: var(--surface);
+}
+.ap-tab {
+  background: none;
+  border: none;
+  padding: 10px 12px;
+  font: 500 13px/1 inherit;
+  color: var(--ink-tertiary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.ap-tab:hover { color: var(--ink-secondary); }
+.ap-tab--active { color: var(--ink); border-bottom-color: var(--ink); }
 
 .ap-section {
   padding: 14px 16px;
@@ -108,11 +127,12 @@ textarea { resize: vertical; }
 .ap-row--checkbox input { width: auto; }
 
 .ap-status {
-  padding: 6px 10px;
+  padding: 8px 10px;
   border-radius: var(--radius);
   background: var(--surface-2);
   font-size: 12px;
   color: var(--ink-secondary);
+  line-height: 1.4;
 }
 .ap-status.ap-status--ok { background: #e8f4ee; color: var(--green); }
 .ap-status.ap-status--err { background: #fef2f2; color: var(--red); }
@@ -122,16 +142,18 @@ textarea { resize: vertical; }
   justify-content: flex-end;
   padding-top: 4px;
 }
+.ap-actions--column { flex-direction: column; }
 
 .ap-btn {
   background: var(--ink);
   color: white;
   border: none;
-  padding: 9px 16px;
+  padding: 10px 16px;
   border-radius: var(--radius);
   font-weight: 500;
   cursor: pointer;
   font-family: inherit;
+  font-size: 13px;
 }
 .ap-btn:hover { opacity: 0.9; }
 .ap-btn[disabled] { opacity: 0.5; cursor: progress; }
@@ -144,4 +166,33 @@ textarea { resize: vertical; }
 .ap-section--settings {
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
+}
+
+.ap-autofill-result {
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--ink-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ap-autofill-result__line { font-size: 12px; }
+.ap-autofill-result details summary {
+  cursor: pointer;
+  color: var(--ink-tertiary);
+  font-size: 11px;
+  margin-top: 4px;
+}
+.ap-autofill-result pre {
+  max-height: 200px;
+  overflow: auto;
+  background: var(--surface-2);
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
