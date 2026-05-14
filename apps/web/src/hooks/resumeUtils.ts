@@ -50,6 +50,7 @@ export function roleToBullets(role: Role): EditableBullet[] {
 
 export function extractProjects(profile: CvProfile): ResumeProject[] {
   // Use AI-extracted structured projects if available
+  console.log('Raw profile.projects:', JSON.stringify(profile.projects));
   if (profile.projects && profile.projects.length > 0) {
     return profile.projects.map((p, i) => ({
       id: `proj-${i}`,
@@ -105,14 +106,15 @@ function extractProjectsFromRawText(rawText: string): ResumeProject[] {
         bullets: [],
       };
     } else if (current && isBullet) {
-      current.bullets.push({
-        id: `pb-${projects.length}-${current.bullets.length}`,
-        text: line.replace(/^[•\-]\s*/, '').trim(),
-        active: true,
+  current.bullets.push({
+    id: `pb-${projects.length}-${current.bullets.length}`,
+    text: line.replace(/^[•\-]\s*/, '').trim(),
+    active: true,
       });
-    } else if (current && !isBullet && !current.techStack && (line.includes('-') || line.includes(','))) {
-      // Tech stack line
-      current.techStack = line;
+    } else if (current && !isBullet && current.bullets.length > 0 && !line.includes('|') && !line.match(/^\w+ - /)) {
+      // Continuation of previous bullet (PDF line wrap)
+      const lastBullet = current.bullets[current.bullets.length - 1];
+      lastBullet.text = lastBullet.text + ' ' + line;
     }
   }
 

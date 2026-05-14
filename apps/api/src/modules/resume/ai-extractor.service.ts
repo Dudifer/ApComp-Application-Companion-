@@ -50,9 +50,9 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       "category": "e.g. Computer Vision & Machine Learning",
       "date": "e.g. Fall 2022",
       "techStack": "Python - PyTorch - sklearn - NumPy",
-  "bullets": ["bullet 1", "bullet 2"]
-}
-
+      "bullets": ["bullet 1", "bullet 2"]
+    }
+  ],
   "practices": ["list of engineering practices used overall"],
   "gapQuestions": [
     {
