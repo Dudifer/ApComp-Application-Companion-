@@ -81,7 +81,7 @@ function SortableExpCard({
       </div>
       {expanded && (
         <div style={{ padding: '10px 14px 12px' }}>
-          {exp.bullets.map(bullet => (
+          {(exp.bullets ?? []).filter(b => b.active).map(bullet => (
             <BulletRow key={bullet.id} bullet={bullet}
               onToggle={() => onToggleBullet(bullet.id)}
               onEdit={text => onEditBullet(bullet.id, text)} />

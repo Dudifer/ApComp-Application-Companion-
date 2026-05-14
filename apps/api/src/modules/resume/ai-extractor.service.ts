@@ -32,7 +32,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       "durationMonths": number,
       "technologies": ["explicit techs mentioned"],
       "practices": ["e.g. unit testing, CI/CD, agile, code review"],
-      "description": "brief summary of what they did"
+      "description": "brief summary of what they did. Each bullet point on its own line, starting with •. Example:\n• Did thing one.\n• Did thing two.\n• Did thing three."
     }
   ],
   "skills": [

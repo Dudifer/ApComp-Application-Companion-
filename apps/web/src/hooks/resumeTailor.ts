@@ -95,7 +95,10 @@ export interface TailoringResult {
 
 export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResult {
   const keywords = extractJobKeywords(job);
-
+  console.log('Input state bullets:', state.experience.map(e => ({ 
+    title: e.title, 
+    bulletCount: e.bullets?.length 
+  })));
   // Check if it already fits
   const originalChars = estimateChars(state);
   if (originalChars <= PAGE_CHAR_LIMIT) {
@@ -130,6 +133,8 @@ export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResul
       bullets: scoredBullets.map(b => ({ id: b.id, text: b.text, active: b.active })),
     };
   });
+  console.log('tailoredExp bullets:', tailoredExp.map(e => ({ title: e.title, bulletCount: e.bullets?.length })));
+
 
   // Score projects
   const scoredProjects = state.projects

@@ -23,10 +23,19 @@ export function parseContactLine(rawText: string): Partial<ResumeHeader> {
 }
 
 export function roleToBullets(role: Role): EditableBullet[] {
-  const lines = role.description
-    .split(/\n/)
+  console.log('description for', role.company, ':', JSON.stringify(role.description));
+  let lines = role.description
+    .split(/\n|•/)
     .map(l => l.replace(/^[•\-]\s*/, '').trim())
     .filter(l => l.length > 15);
+  if (lines.length <= 1) {
+    lines = role.description
+      .split(/\.\s+/)
+      .map(l => l.trim())
+      .filter(l => l.length > 15)
+      .map(l => l.endsWith('.') ? l : l + '.');
+  }
+  console.log('lines found:', lines.length);
 
   if (lines.length === 0 && role.description.length > 10) {
     return [{ id: `b-${role.company}-0`, text: role.description.trim(), active: true }];

@@ -13,27 +13,29 @@ const s = StyleSheet.create({
     color: '#1a1814',
     lineHeight: 1.4,
   },
+/* Header Format */ 
   headerName: {
     fontFamily: 'Helvetica-Bold',
     fontSize: 22,
     textAlign: 'center',
-    letterSpacing: 0.5,
+    letterSpacing: 1.0,
     marginBottom: 6,
   },
   headerTitle: {
     fontSize: 10,
     textAlign: 'center',
     color: '#555',
-    marginBottom: 8,
+    marginBottom: 6,
     letterSpacing: 1,
+    paddingTop: 2,
   },
   headerContact: {
     flexDirection: 'row',
     justifyContent: 'center',
     flexWrap: 'wrap',
-    fontSize: 8.5,
+    fontSize: 8,
     color: '#444',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   contactItem: { marginHorizontal: 4 },
   contactSep: { color: '#aaa' },
@@ -48,7 +50,8 @@ const s = StyleSheet.create({
     marginBottom: 6,
     marginTop: 10,
   },
-  expBlock: { marginBottom: 8 },
+/* Experience Format */ 
+  expBlock: { marginBottom: 6 },
   expHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -64,10 +67,12 @@ const s = StyleSheet.create({
   },
   expCompany: { fontFamily: 'Helvetica-Oblique', fontSize: 9.5, color: '#333' },
   expLocation: { fontSize: 9, color: '#555' },
-  bullet: { flexDirection: 'row', marginBottom: 2, paddingLeft: 8 },
+  bullet: { flexDirection: 'row', marginBottom: 0, paddingLeft: 8 },
   bulletDot: { width: 10, fontSize: 9, color: '#333' },
   bulletText: { flex: 1, fontSize: 9, color: '#222', lineHeight: 1.45 },
-  projBlock: { marginBottom: 8 },
+
+  /* Project Format */ 
+  projBlock: { marginBottom: 6 },
   projHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -86,6 +91,8 @@ const s = StyleSheet.create({
     color: '#444',
     marginBottom: 3,
   },
+
+  /* Education Format */
 
   eduHeader: {
     flexDirection: 'row',
