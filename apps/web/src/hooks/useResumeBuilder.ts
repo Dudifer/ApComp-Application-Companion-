@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { CvProfile, Role, SkillEntry } from '@apcomp/types';
 import type { Job } from '@apcomp/types';
 import { tailorResumeForJob, type TailoringResult } from './resumeTailor';
@@ -245,6 +245,32 @@ export function useResumeBuilder(initialJob?: Job | null) {
       return { ...s, projects: arr };
     });
   }, []);
+  const toggleProjectBullet = useCallback((projId: string, bulletId: string) => {
+    setState(s => s ? {
+      ...s,
+      projects: s.projects.map(p => p.id === projId ? {
+        ...p,
+        bullets: (p.bullets ?? []).map(b => b.id === bulletId ? { ...b, active: !b.active } : b),
+      } : p),
+    } : s);
+  }, []);
+
+  const updateProjectBullet = useCallback((projId: string, bulletId: string, text: string) => {
+    setState(s => s ? {
+      ...s,
+      projects: s.projects.map(p => p.id === projId ? {
+        ...p,
+        bullets: (p.bullets ?? []).map(b => b.id === bulletId ? { ...b, text } : b),
+      } : p),
+    } : s);
+  }, []);
+
+  const updateProjectField = useCallback((projId: string, field: 'name' | 'category' | 'date' | 'techStack', value: string) => {
+    setState(s => s ? {
+      ...s,
+      projects: s.projects.map(p => p.id === projId ? { ...p, [field]: value } : p),
+    } : s);
+  }, []);
 
   const updateProject = useCallback((id: string, text: string) => {
     setState(s => s ? {
@@ -287,5 +313,8 @@ export function useResumeBuilder(initialJob?: Job | null) {
     updateProject,
     toggleSkillGroup,
     updateSkillGroup,
+    toggleProjectBullet,
+    updateProjectBullet,
+    updateProjectField,
   };
 }

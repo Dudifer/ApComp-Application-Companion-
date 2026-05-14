@@ -123,40 +123,115 @@ function BulletRow({ bullet, onToggle, onEdit }: {
   );
 }
 
-function SortableProjectRow({ project, onToggle, onEdit }: {
+// Replace the SortableProjectRow component in ResumeBuilderPage.tsx with this:
+
+function SortableProjectCard({
+  project,
+  onToggle,
+  onToggleBullet,
+  onEditBullet,
+  onEditField,
+}: {
   project: ResumeProject;
   onToggle: () => void;
-  onEdit: (text: string) => void;
+  onToggleBullet: (bulletId: string) => void;
+  onEditBullet: (bulletId: string, text: string) => void;
+  onEditField: (field: 'name' | 'category' | 'date' | 'techStack', value: string) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(true);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: project.id });
 
   return (
-    <div ref={setNodeRef}
+    <div
+      ref={setNodeRef}
       style={{
-        transform: CSS.Transform.toString(transform), transition,
-        opacity: isDragging ? 0.5 : project.active ? 1 : 0.4,
-        display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6,
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : project.active ? 1 : 0.55,
+        background: project.active ? 'white' : '#f7f6f4',
+        border: `1px solid ${project.active ? 'var(--border)' : 'var(--surface-3)'}`,
+        borderRadius: 10,
+        marginBottom: 8,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Card header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '10px 14px',
+        background: project.active ? 'var(--surface-2)' : 'var(--surface-3)',
       }}>
-      <span {...attributes} {...listeners}
-        style={{ cursor: 'grab', color: 'var(--ink-tertiary)', fontSize: 13, marginTop: 2 }}>⠿</span>
-      <button onClick={onToggle} style={{
-        marginTop: 3, flexShrink: 0, width: 14, height: 14, borderRadius: 3,
-        border: `1.5px solid ${project.active ? 'var(--accent)' : 'var(--surface-3)'}`,
-        background: project.active ? 'var(--accent)' : 'transparent',
-        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        {project.active && <span style={{ color: 'white', fontSize: 9, lineHeight: 1 }}>✓</span>}
-      </button>
-      <div ref={ref} contentEditable suppressContentEditableWarning
-        onBlur={() => { if (ref.current) onEdit(ref.current.innerText.trim()); }}
-        style={{
-          flex: 1, fontSize: 12, color: 'var(--ink)', lineHeight: 1.5,
-          outline: 'none', borderBottom: '1px solid transparent', padding: '1px 2px',
-        }}>
-        {project.text}
+        <span
+          {...attributes}
+          {...listeners}
+          style={{ cursor: 'grab', color: 'var(--ink-tertiary)', fontSize: 14, userSelect: 'none' }}
+        >
+          ⠿
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'var(--font-display)', letterSpacing: '-0.01em' }}>
+            {project.name}
+            {project.category && (
+              <span style={{ fontWeight: 400, color: 'var(--ink-secondary)' }}>
+                {' | '}{project.category}
+              </span>
+            )}
+          </div>
+          {project.date && (
+            <div style={{ fontSize: 11, color: 'var(--ink-tertiary)' }}>{project.date}</div>
+          )}
+        </div>
+        <button
+          onClick={() => setExpanded(e => !e)}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-tertiary)', fontSize: 11 }}
+        >
+          {expanded ? '▲' : '▼'}
+        </button>
+        <button
+          onClick={onToggle}
+          style={{
+            background: 'none',
+            border: `1px solid ${project.active ? 'var(--border)' : 'var(--accent)'}`,
+            borderRadius: 6, cursor: 'pointer', padding: '2px 8px',
+            fontSize: 11, color: project.active ? 'var(--ink-tertiary)' : 'var(--accent)',
+            fontFamily: 'var(--font-body)',
+          }}
+        >
+          {project.active ? 'Hide' : 'Show'}
+        </button>
       </div>
+
+      {/* Expanded content */}
+      {expanded && (
+        <div style={{ padding: '10px 14px 12px' }}>
+          {/* Tech stack */}
+          {project.techStack && (
+            <div style={{
+              fontSize: 11, color: 'var(--ink-secondary)', fontStyle: 'italic',
+              marginBottom: 8, paddingLeft: 2,
+            }}>
+              {project.techStack}
+            </div>
+          )}
+
+          {/* Bullets */}
+          {(project.bullets ?? []).length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--ink-tertiary)', paddingLeft: 4 }}>
+              No bullets extracted.
+            </div>
+          ) : (
+            (project.bullets ?? []).map(bullet => (
+              <BulletRow
+                key={bullet.id}
+                bullet={bullet}
+                onToggle={() => onToggleBullet(bullet.id)}
+                onEdit={text => onEditBullet(bullet.id, text)}
+              />
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -287,7 +362,7 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
           background: var(--accent-light);
           border: 1px solid var(--accent);
           border-radius: 10px;
-          padding: 12px 16px;
+          padding: 14px 16px;
           margin-bottom: 20px;
           display: flex;
           flex-direction: column;
@@ -300,7 +375,7 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
           gap: 8px;
         }
         .tailor-banner-title {
-          font-size: 12px;
+          font-size: 14px;
           font-weight: 600;
           color: var(--accent);
           font-family: var(--font-display);
@@ -424,7 +499,6 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
           {/* Work Experience */}
           <SectionPanel title="Work Experience">
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleExpDragEnd}>
-              console.log('rendering exp:', exp.title, 'bullets:', exp.bullets?.length);
               <SortableContext items={state.experience.map(e => e.id)} strategy={verticalListSortingStrategy}>
                 {state.experience.map(exp => (
                   <SortableExpCard
@@ -439,23 +513,22 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
             </DndContext>
           </SectionPanel>
 
-          {/* Personal Projects */}
-          {state.projects.length > 0 && (
-            <SectionPanel title="Personal Projects">
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleProjDragEnd}>
-                <SortableContext items={state.projects.map(p => p.id)} strategy={verticalListSortingStrategy}>
-                  {state.projects.map(proj => (
-                    <SortableProjectRow
-                      key={proj.id}
-                      project={proj}
-                      onToggle={() => builder.toggleProject(proj.id)}
-                      onEdit={text => builder.updateProject(proj.id, text)}
-                    />
-                  ))}
-                </SortableContext>
-              </DndContext>
-            </SectionPanel>
-          )}
+          <SectionPanel title="Personal Projects">
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleProjDragEnd}>
+              <SortableContext items={state.projects.map(p => p.id)} strategy={verticalListSortingStrategy}>
+                {state.projects.map(proj => (
+                  <SortableProjectCard
+                    key={proj.id}
+                    project={proj}
+                    onToggle={() => builder.toggleProject(proj.id)}
+                    onToggleBullet={bId => builder.toggleProjectBullet(proj.id, bId)}
+                    onEditBullet={(bId, text) => builder.updateProjectBullet(proj.id, bId, text)}
+                    onEditField={(field, value) => builder.updateProjectField(proj.id, field, value)}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+          </SectionPanel>
 
           {/* Technical Skills */}
           {state.skillGroups.length > 0 && (

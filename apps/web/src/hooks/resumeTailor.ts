@@ -136,6 +136,7 @@ export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResul
   });
   console.log('tailoredExp bullets:', tailoredExp.map(e => ({ title: e.title, bulletCount: e.bullets?.length })));
 
+//const contextText = [p.name, p.category, p.techStack, ...(p.bullets ?? []).map(b => b.text)].filter(Boolean).join(' ');
 
   // Score projects
   const scoredProjects = state.projects
