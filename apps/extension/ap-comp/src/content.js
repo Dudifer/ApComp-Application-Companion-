@@ -127,7 +127,7 @@
     style.textContent = `
       #apcomp-fab {
         position: fixed;
-        bottom: 20px;
+        bottom: 90px;
         right: 20px;
         z-index: 2147483647;
         display: inline-flex;
@@ -164,7 +164,7 @@
 
       .apcomp-toast {
         position: fixed;
-        bottom: 80px;
+        bottom: 150px;
         right: 20px;
         z-index: 2147483647;
         padding: 10px 14px;
