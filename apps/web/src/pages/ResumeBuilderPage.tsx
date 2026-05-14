@@ -111,8 +111,17 @@ function BulletRow({ bullet, onToggle, onEdit }: {
       <div ref={ref} contentEditable suppressContentEditableWarning
         onBlur={() => { if (ref.current) onEdit(ref.current.innerText.trim()); }}
         style={{
-          flex: 1, fontSize: 12, color: 'var(--ink)', lineHeight: 1.5,
-          outline: 'none', borderBottom: '1px solid transparent', padding: '1px 2px', borderRadius: 3,
+          flex: 1, 
+          fontSize: 12, 
+          color: 'var(--ink)', 
+          lineHeight: 1.5,
+          outline: 'none', 
+          borderBottom: '1px solid transparent', 
+          padding: '1px 2px', 
+          borderRadius: 3, 
+          wordBreak: 'break-word',
+          whiteSpace: 'pre-wrap',
+          overflowWrap: 'break-word',
         }}
         onFocus={e => { (e.target as HTMLElement).style.borderBottomColor = 'var(--accent)'; }}
         onBlurCapture={e => { (e.target as HTMLElement).style.borderBottomColor = 'transparent'; }}

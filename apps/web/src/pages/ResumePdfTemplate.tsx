@@ -9,7 +9,7 @@ const s = StyleSheet.create({
     fontSize: 9.5,
     paddingTop: 36,
     paddingBottom: 36,
-    paddingHorizontal: 48,
+    paddingHorizontal: 36,
     color: '#1a1814',
     lineHeight: 1.4,
   },
@@ -67,9 +67,9 @@ const s = StyleSheet.create({
   },
   expCompany: { fontFamily: 'Helvetica-Oblique', fontSize: 9.5, color: '#333' },
   expLocation: { fontSize: 9, color: '#555' },
-  bullet: { flexDirection: 'row', marginBottom: 0, paddingLeft: 8 },
+  bullet: { flexDirection: 'row', marginBottom: 0, paddingLeft: 8, flexWrap: 'wrap' },
   bulletDot: { width: 10, fontSize: 9, color: '#333' },
-  bulletText: { flex: 1, fontSize: 9, color: '#222', lineHeight: 1.45 },
+  bulletText: { flex: 1, fontSize: 9, color: '#222', lineHeight: 1.45, flexWrap: 'wrap' },
 
   /* Project Format */ 
   projBlock: { marginBottom: 6 },
