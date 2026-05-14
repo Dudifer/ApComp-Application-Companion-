@@ -3,7 +3,7 @@ import type { ResumeState, ResumeExperience, ResumeProject } from './useResumeBu
 
 // Rough character-based page estimation
 // A letter page at 9.5pt with our margins fits ~4000 chars of content
-const PAGE_CHAR_LIMIT = 3000;
+const PAGE_CHAR_LIMIT = 3400;
 
 function extractJobKeywords(job: Job): string[] {
   const sources = [
@@ -128,6 +128,7 @@ export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResul
     }));
     // Sort bullets by score, keep structure but mark low scorers inactive if needed
     scoredBullets.sort((a, b) => b.score - a.score);
+    console.log('scoredBullets for', exp.title, ':', scoredBullets.map(b => ({ text: b.text, score: b.score })));
     return {
       ...exp,
       bullets: scoredBullets.map(b => ({ id: b.id, text: b.text, active: b.active })),
@@ -158,25 +159,25 @@ export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResul
 
   // Iteratively hide lowest-scoring items until it fits
   // Pass 1: hide bullets in lowest-scoring experiences
-  for (let expIdx = tailoredExp.length - 1; expIdx >= 0; expIdx--) {
-    if (estimateChars(working) <= PAGE_CHAR_LIMIT) break;
-    const exp = working.experience[expIdx];
-    if (!exp.active) continue;
+  // for (let expIdx = tailoredExp.length - 1; expIdx >= 0; expIdx--) {
+  //   if (estimateChars(working) <= PAGE_CHAR_LIMIT) break;
+  //   const exp = working.experience[expIdx];
+  //   if (!exp.active) continue;
 
-    // Hide bullets from the bottom up within this exp
-    for (let bIdx = exp.bullets.length - 1; bIdx >= 0; bIdx--) {
-      if (estimateChars(working) <= PAGE_CHAR_LIMIT) break;
-      if (!exp.bullets[bIdx].active) continue;
-      working = {
-        ...working,
-        experience: working.experience.map((e, i) => i === expIdx ? {
-          ...e,
-          bullets: e.bullets.map((b, j) => j === bIdx ? { ...b, active: false } : b),
-        } : e),
-      };
-      bulletsHidden++;
-    }
-  }
+  //   // Hide bullets from the bottom up within this exp
+  //   for (let bIdx = exp.bullets.length - 1; bIdx >= 0; bIdx--) {
+  //     if (estimateChars(working) <= PAGE_CHAR_LIMIT) break;
+  //     if (!exp.bullets[bIdx].active) continue;
+  //     working = {
+  //       ...working,
+  //       experience: working.experience.map((e, i) => i === expIdx ? {
+  //         ...e,
+  //         bullets: e.bullets.map((b, j) => j === bIdx ? { ...b, active: false } : b),
+  //       } : e),
+  //     };
+  //     bulletsHidden++;
+  //   }
+  // }
 
   // Pass 2: hide lowest-scoring projects
   for (let i = scoredProjects.length - 1; i >= 0; i--) {
@@ -190,16 +191,15 @@ export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResul
   }
 
   // Pass 3: hide lowest-scoring experience entries entirely
-  for (let i = working.experience.length - 1; i >= 0; i--) {
-    if (estimateChars(working) <= PAGE_CHAR_LIMIT) break;
-    if (!working.experience[i].active) continue;
-    working = {
-      ...working,
-      experience: working.experience.map((e, j) => j === i ? { ...e, active: false } : e),
-    };
-    itemsHidden++;
-  }
-
+  // for (let i = working.experience.length - 1; i >= 0; i--) {
+  //   if (estimateChars(working) <= PAGE_CHAR_LIMIT) break;
+  //   if (!working.experience[i].active) continue;
+  //   working = {
+  //     ...working,
+  //     experience: working.experience.map((e, j) => j === i ? { ...e, active: false } : e),
+  //   };
+  //   itemsHidden++;
+  // }
   return {
     state: working,
     keywordsUsed: keywords,

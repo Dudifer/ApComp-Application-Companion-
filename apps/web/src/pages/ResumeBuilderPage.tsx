@@ -424,6 +424,7 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
           {/* Work Experience */}
           <SectionPanel title="Work Experience">
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleExpDragEnd}>
+              console.log('rendering exp:', exp.title, 'bullets:', exp.bullets?.length);
               <SortableContext items={state.experience.map(e => e.id)} strategy={verticalListSortingStrategy}>
                 {state.experience.map(exp => (
                   <SortableExpCard
