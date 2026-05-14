@@ -32,4 +32,8 @@ export class ApplicationsController {
     // Redirect back to the frontend dashboard
     res.redirect('http://localhost:5173');
   }
+  @Post('scrape')
+  async scrape() {
+    return this.applicationsService.forceScrape();
+  }
 }

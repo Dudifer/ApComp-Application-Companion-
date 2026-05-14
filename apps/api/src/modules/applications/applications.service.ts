@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { GmailService, GmailTokens } from './gmail.service';
 import { ApplicationStatus } from '../../../generated/prisma';
+import { BadRequestException } from '@nestjs/common/exceptions/bad-request.exception';
 
 const DEV_USER_ID = 'dev-user';
 const SCRAPE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -140,7 +141,13 @@ export class ApplicationsService {
 
     this.logger.log(`Scrape complete: ${created} created, ${updated} updated`);
   }
-
+  
+  async forceScrape(): Promise<{ scraped: number }> {
+    const tokens = await this.loadTokens();
+    if (!tokens) throw new BadRequestException('Gmail not connected');
+    const scraped = await this.scrapeEmails(tokens);
+    return { scraped };
+  }
   private async autoRejectStale(): Promise<void> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - AUTO_REJECT_DAYS);
