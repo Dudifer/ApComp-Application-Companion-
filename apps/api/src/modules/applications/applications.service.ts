@@ -141,13 +141,15 @@ export class ApplicationsService {
 
     this.logger.log(`Scrape complete: ${created} created, ${updated} updated`);
   }
-  
-  async forceScrape(): Promise<{ scraped: number }> {
-    const tokens = await this.loadTokens();
-    if (!tokens) throw new BadRequestException('Gmail not connected');
-    const scraped = await this.scrapeEmails(tokens);
-    return { scraped };
+
+  async forceScrape(): Promise<{ success: boolean }> {
+    if (!this.isGmailConnected()) {
+      throw new BadRequestException('Gmail not connected');
+    }
+    await this.scrapeEmails();
+    return { success: true };
   }
+  
   private async autoRejectStale(): Promise<void> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - AUTO_REJECT_DAYS);
