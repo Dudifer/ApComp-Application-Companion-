@@ -70,6 +70,7 @@ ApComp is a developer-focused job application companion that automates the busyw
 ### 5. Job-Based Resume Tailoring 
 
 When viewing a job, clicking "✦ Tailor resume" navigates to the resume builder with keyword-based trimming applied automatically — no AI required.
+
 '''
 Job description + requirements
     │
@@ -98,6 +99,7 @@ Show in builder with tailoring banner
     └── "X items hidden · ranked by keyword relevance"
     └── "Reset to full CV" button
 '''
+
 Key design decisions:
 - No AI used pure keyword frequency scoring
 - Experience entries are never hidden, only reordered by relevance
