@@ -8,6 +8,7 @@ const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 const JOB_EMAIL_FILTERS = [
   'application',
   'applied',
+  'applying',
   'position',
   'role',
   'opportunity',

@@ -136,7 +136,7 @@ const STATUS_RULES: StatusRule[] = [
       'thank you for applying',
       'application received',
       'thanks for your application',
-      'we received your application',
+      'received your application',
       'application submitted',
       'successfully applied',
       'your application for',
