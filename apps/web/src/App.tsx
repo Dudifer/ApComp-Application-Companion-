@@ -450,25 +450,25 @@ export default function App() {
           </button>
         ))}
         <div className="nav-right">
-          <div className="avatar">JD</div>
+          <div className="avatar">JN</div>
         </div>
       </nav>
  
       <main style={{ padding: active === 'Resume Builder' ? 0 : undefined }}>
         {active === 'Applications' ? (
           <AllApplicationsPage />
-        ) : active === 'Resume Demo' ? (
-          <ResumeDemoPage />
         ) : active === 'CV Upload' ? (
           <ResumePage />
         ): active === 'Resume Builder' ? (
           <ResumeBuilderPage initialJob={tailorJob} onNavigate={(page) => setActive(page)}/>
         ) : active === 'Job Search' ? (
           <JobSearchPage onJobSelect={job => { setSelectedJob(job); }}/>
-        ) : (
+        ) : (//active === 'Resume Demo' ? (
+        //   <ResumeDemoPage />
+        // ) : (
           
           <>
-            <div className="greeting">Good evening, John.</div>
+            <div className="greeting">Good evening, Jacob.</div>
             <div className="greeting-sub">Here's where things stand today.</div>
 
             <div className="stats-row">

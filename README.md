@@ -100,8 +100,8 @@ Show in builder with tailoring banner
     └── "Reset to full CV" button
 ```
 
-Key design decisions:
-- No AI used pure keyword frequency scoring
+Design decisions:
+- Keyword frequency scoring
 - Experience entries are never hidden, only reordered by relevance
 - User retains full manual control — anything hidden can be toggled back
 - Export filename includes the target company: Jacob_Nyberg_Resume_Stripe.pdf
@@ -349,8 +349,8 @@ cd apps/api && pnpm test:parsers
 
 ## Roadmap
 
-- [ ] Auth (Clerk) — multi-user login
 - [ ] Chrome Extension — save jobs from any page, autofill applications from CV profile
 - [ ] Interview Practice — LeetCode-style coding challenges (Monaco + Judge0)
 - [ ] Application analytics — pipeline funnel charts
 - [ ] Mobile app
+- [ ] Auth (Clerk) — multi-user login
