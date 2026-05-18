@@ -1,7 +1,6 @@
 # ApComp — The Application Companion
 
-> A full-stack job application tracking and resume tailoring tool for software engineers.
-
+> A full-stack job application tracking and resume tailoring tool.
 ---
 
 ## Table of Contents
