@@ -3,7 +3,7 @@ import type { ResumeState, ResumeExperience, ResumeProject } from './useResumeBu
 
 // Rough character-based page estimation
 // A letter page at 9.5pt with our margins fits ~4000 chars of content
-const PAGE_CHAR_LIMIT = 3400;
+const PAGE_CHAR_LIMIT = 3800;
 
 function extractJobKeywords(job: Job): string[] {
   const sources = [
