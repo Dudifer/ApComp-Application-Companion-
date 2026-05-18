@@ -1,6 +1,6 @@
 # ApComp — The Application Companion
 
-> A full-stack job application tracking and resume tailoring tool for software engineers.
+> A full-stack job application tracking and resume tailoring tool.
 
 ---
 
@@ -22,7 +22,7 @@
 
 ## Overview
 
-ApComp is a developer-focused job application companion that automates the busywork of job hunting. It scrapes your Gmail for application emails, recommends relevant jobs from multiple sources, parses your CV into a structured skill profile, and provides a drag-and-drop resume builder with live PDF preview and keyword-based tailoring.
+ApComp is a job application companion that automates the busywork of job hunting. It scrapes your Gmail for application emails, recommends relevant jobs from multiple sources, parses your CV into a structured skill profile, and provides a drag-and-drop resume builder with live PDF preview and keyword-based tailoring.
 
 <img src="docs\images\Screenshot 2026-05-17 211322.png" width="49%" /><img src="docs\images\Screenshot 2026-05-17 211406.png" width="49%" />
 
