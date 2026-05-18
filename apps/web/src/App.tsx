@@ -9,13 +9,30 @@ import JobSearchPage from './pages/JobSearchPage';
 import ResumeDemoPage from './pages/ResumeDemoPage';
 import ResumePage from './pages/ResumePage';
 
-const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Resume Demo", "Job Search", "Practice"];
- 
+// const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Resume Demo", "Job Search", "Practice"];
+const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Search", "Practice"];
+
+
 const STATUS_COLORS: Record<string, string> = {
   Applied: "status-applied",
   "Phone Screen": "status-phone",
   Technical: "status-tech",
   Offer: "status-offer",
+};
+
+const STATUS_ORDER: Record<string, number> = {
+  OFFER: 0,
+  FINAL_ROUND: 1,
+  INTERVIEW: 2,
+  TECHNICAL: 3,
+  PHONE_SCREEN: 4,
+  ASSESSMENT: 5,
+  VIEWED: 6,
+  SUBMITTED: 7,
+  APPLIED: 8,
+  UNKNOWN: 9,
+  WITHDRAWN: 10,
+  REJECTED: 11,
 };
  
 export default function App() {
@@ -23,7 +40,8 @@ export default function App() {
 
   const [active, setActive] = useState("Dashboard");
 
-  const { applications, loading, gmailConnected, connectGmail } = useApplications();
+  const { applications: fetchedApplications, loading, gmailConnected, connectGmail } = useApplications();
+  const [applications, setApplications] = useState(fetchedApplications);  
   
   const [tailorJob, setTailorJob] = useState<Job | null>(null);
 
@@ -36,6 +54,10 @@ export default function App() {
     window.addEventListener('navigate', handler);
     return () => window.removeEventListener('navigate', handler);
   }, []);
+
+  useEffect(() => {
+    setApplications(fetchedApplications);
+  }, [fetchedApplications]);
 
   return (
     <>
@@ -524,8 +546,26 @@ export default function App() {
                     : 'Connect Gmail to start tracking your applications.'}
                 </div>
               ) : (
-                applications.map((app) => (
+                [...applications]
+                  .sort((a, b) => {
+                    const statusDiff = (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9);
+                    if (statusDiff !== 0) return statusDiff;
+                    return new Date(b.appliedAt).getTime() - new Date(a.appliedAt).getTime();
+                  })
+                  .map((app) => (
                   <div className="app-card" key={app.id}>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        onClick={() => setApplications(prev => prev.filter(a => a.id !== app.id))}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--ink-tertiary)', fontSize: 16, padding: '0 2px',
+                          lineHeight: 1,
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
                     <div className="app-card-top">
                       <div className="company-logo">{app.company.slice(0, 2)}</div>
                       <span className={`status-badge ${STATUS_CONFIG[app.status]?.colorClass ?? 'status-applied'}`}>
