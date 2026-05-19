@@ -21,6 +21,15 @@ const JOB_EMAIL_FILTERS = [
   'career',
   'assessment',
   'unfortunately',
+  'thank you for your interest',
+  'received your application',
+  'we have received',
+  'thank you for applying',
+  'your submission',
+  'your interest in joining',
+  'next steps',
+  'move forward',
+  'review your',
 ];
 
 export interface GmailTokens {

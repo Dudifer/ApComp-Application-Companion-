@@ -78,9 +78,11 @@ export class ApplicationsService {
     return all.filter(a => !['REJECTED', 'WITHDRAWN'].includes(a.status));
   }
 
-  private shouldScrape(): boolean {
-    if (!this.lastScrapeTime) return true;
-    return Date.now() - this.lastScrapeTime.getTime() > SCRAPE_INTERVAL_MS;
+  private async shouldScrape(): Promise<boolean> {
+    const lastScrapedAt = await this.getLastScrapedAt();
+    if (!lastScrapedAt) return true;
+    const hoursSince = (Date.now() - lastScrapedAt.getTime()) / (1000 * 60 * 60);
+    return hoursSince >= 24;
   }
 
   private async scrapeEmails(): Promise<void> {
@@ -88,6 +90,14 @@ export class ApplicationsService {
 
     this.logger.log('Starting Gmail scrape...');
     this.lastScrapeTime = new Date();
+
+    const lastScrapedAt = await this.getLastScrapedAt();
+  
+    const afterDate = lastScrapedAt 
+      ? Math.floor(lastScrapedAt.getTime() / 1000)  // Gmail uses Unix seconds
+      : Math.floor((Date.now() - 365 * 24 * 60 * 60 * 1000) / 1000); // 1 year ago on first scrape
+
+    const query = `after:${afterDate} (${JOB_EMAIL_FILTERS.map(k => `"${k}"`).join(' OR ')})`;
 
     const scraped = await this.gmail.scrapeApplicationEmails(this.gmailTokens);
 
@@ -140,6 +150,8 @@ export class ApplicationsService {
     }
 
     this.logger.log(`Scrape complete: ${created} created, ${updated} updated`);
+
+    await this.setLastScrapedAt();
   }
 
   async forceScrape(): Promise<{ success: boolean }> {
@@ -218,4 +230,19 @@ export class ApplicationsService {
       isAutoRejected: a.status === 'REJECTED' && a.updatedAt < cutoff,
     };
   }
+}
+
+private async getLastScrapedAt(): Promise<Date | null> {
+  const settings = await this.prisma.userSettings.findUnique({
+    where: { userId: DEV_USER_ID },
+  });
+  return settings?.lastScrapedAt ?? null;
+}
+
+private async setLastScrapedAt(): Promise<void> {
+  await this.prisma.userSettings.upsert({
+    where: { userId: DEV_USER_ID },
+    update: { lastScrapedAt: new Date() },
+    create: { userId: DEV_USER_ID, lastScrapedAt: new Date() },
+  });
 }
