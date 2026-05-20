@@ -230,19 +230,19 @@ export class ApplicationsService {
       isAutoRejected: a.status === 'REJECTED' && a.updatedAt < cutoff,
     };
   }
-}
 
-private async getLastScrapedAt(): Promise<Date | null> {
-  const settings = await this.prisma.userSettings.findUnique({
-    where: { userId: DEV_USER_ID },
-  });
-  return settings?.lastScrapedAt ?? null;
-}
+  private async getLastScrapedAt(): Promise<Date | null> {
+    const settings = await this.prisma.userSettings.findUnique({
+      where: { userId: DEV_USER_ID },
+    });
+    return settings?.lastScrapedAt ?? null;
+  }
 
-private async setLastScrapedAt(): Promise<void> {
-  await this.prisma.userSettings.upsert({
-    where: { userId: DEV_USER_ID },
-    update: { lastScrapedAt: new Date() },
-    create: { userId: DEV_USER_ID, lastScrapedAt: new Date() },
-  });
+  private async setLastScrapedAt(): Promise<void> {
+    await this.prisma.userSettings.upsert({
+      where: { userId: DEV_USER_ID },
+      update: { lastScrapedAt: new Date() },
+      create: { userId: DEV_USER_ID, lastScrapedAt: new Date() },
+    });
+  }
 }
