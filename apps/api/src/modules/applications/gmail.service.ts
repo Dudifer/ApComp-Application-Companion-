@@ -5,7 +5,7 @@ import { detectStatus, extractCompany, extractPosition } from './email-parser';
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
 // Keywords to filter emails to only job-related ones
-const JOB_EMAIL_FILTERS = [
+export const JOB_EMAIL_FILTERS = [
   'application',
   'applied',
   'applying',
@@ -55,7 +55,7 @@ export class GmailService {
   private createOAuthClient() {
     return new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
-      process.env.GOOGLE_CLIENT_SECRET,
+      process.env.GOOGLE_CLIENT_SECRET,//await this.isGmailConnected()
       process.env.GOOGLE_REDIRECT_URI,
     );
   }

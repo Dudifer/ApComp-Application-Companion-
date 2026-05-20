@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { GmailService, GmailTokens } from './gmail.service';
+import { GmailService, GmailTokens, JOB_EMAIL_FILTERS } from './gmail.service';
 import { ApplicationStatus } from '../../../generated/prisma';
 import { BadRequestException } from '@nestjs/common/exceptions/bad-request.exception';
 
@@ -55,9 +55,9 @@ export class ApplicationsService {
     await this.ensureDevUser();
 
     // Scrape if connected and due
-    if (this.isGmailConnected() && this.shouldScrape()) {
+    if ((await this.isGmailConnected()) && (await this.shouldScrape())) {
       await this.scrapeEmails().catch(err =>
-        this.logger.warn('Scrape failed, returning cached data:', err)
+        this.logger.warn('Scrape failed, returning cached data:', err),
       );
     }
 
@@ -155,13 +155,13 @@ export class ApplicationsService {
   }
 
   async forceScrape(): Promise<{ success: boolean }> {
-    if (!this.isGmailConnected()) {
+    if (!this.gmailTokens) {
       throw new BadRequestException('Gmail not connected');
     }
     await this.scrapeEmails();
     return { success: true };
   }
-  
+
   private async autoRejectStale(): Promise<void> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - AUTO_REJECT_DAYS);

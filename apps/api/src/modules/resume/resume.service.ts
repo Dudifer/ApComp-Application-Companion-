@@ -92,31 +92,25 @@ export class ResumeService {
   }
 
   private async saveProfile(profile: CvProfile) {
+    // Cast the inputs to `any` for the education field path so TypeScript
+    // tolerates a Prisma client that hasn't been regenerated yet against the
+    // new `education` column. After `prisma migrate dev` (or `prisma generate`)
+    // the column is in the generated types and this stays sound at runtime.
+    const data: any = {
+      name: profile.name,
+      email: profile.email,
+      rawText: profile.rawText,
+      roles: profile.roles,
+      skills: profile.skills,
+      practices: profile.practices,
+      education: profile.education ?? [],
+      gapQuestions: profile.gapQuestions,
+      isComplete: profile.isComplete,
+    };
     await this.prisma.cvProfile.upsert({
       where: { userId: DEV_USER_ID },
-      update: {
-        name: profile.name,
-        email: profile.email,
-        rawText: profile.rawText,
-        roles: profile.roles as any,
-        skills: profile.skills as any,
-        practices: profile.practices as any,
-        education: (profile.education ?? []) as any,
-        gapQuestions: profile.gapQuestions as any,
-        isComplete: profile.isComplete,
-      },
-      create: {
-        userId: DEV_USER_ID,
-        name: profile.name,
-        email: profile.email,
-        rawText: profile.rawText,
-        roles: profile.roles as any,
-        skills: profile.skills as any,
-        practices: profile.practices as any,
-        education: (profile.education ?? []) as any,
-        gapQuestions: profile.gapQuestions as any,
-        isComplete: profile.isComplete,
-      },
+      update: data,
+      create: { userId: DEV_USER_ID, ...data },
     });
   }
 

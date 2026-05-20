@@ -103,10 +103,6 @@ export interface JobFeedWeights {
   jsearch: number;
 }
 
-/**
- * Payload sent from the Chrome extension to POST /jobs/capture.
- * Only `title`, `company`, and `url` are required; the backend fills the rest.
- */
 export interface CapturedJobInput {
   title: string;
   company: string;
