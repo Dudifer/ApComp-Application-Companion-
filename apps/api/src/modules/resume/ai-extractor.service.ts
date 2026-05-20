@@ -18,6 +18,7 @@ IMPORTANT:
 - Extract projects into the separate "projects" array with full structure.
 - Also extract technologies from Personal Projects and include them in the skills array.
 - For project-derived skills, set usedAt to ["project name"] and estimate monthsExperience as 3-6 months per project.
+- Extract the Education section into the "education" array. If a field isn't mentioned in the CV, set it to null (don't guess).
 
 Return ONLY valid JSON matching this exact structure (no markdown, no explanation):
 {
@@ -53,6 +54,19 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
       "bullets": ["bullet 1", "bullet 2"]
     }
   ],
+  "education": [
+    {
+      "school": "Institution name (required)",
+      "degree": "e.g. Bachelor of Science, B.S., M.S., High School Diploma",
+      "field": "e.g. Computer Science, Mathematics",
+      "startDate": "YYYY-MM or YYYY if month unknown",
+      "endDate": "YYYY-MM, or 'Expected YYYY-MM' if still in progress, or null",
+      "gpa": "string e.g. '3.8' or '3.8/4.0' or null",
+      "location": "City, State or null",
+      "honors": ["cum laude", "Dean's List"],
+      "activities": ["clubs, leadership roles"]
+    }
+  ],
   "practices": ["list of engineering practices used overall"],
   "gapQuestions": [
     {
@@ -65,7 +79,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no explanatio
   ],
   "isComplete": false
 }
-  
+
 Gap question rules:
 - Only ask about roles and projects where technologies/stack are vague or missing
 - Ask about backend stack if only frontend is mentioned (or vice versa)

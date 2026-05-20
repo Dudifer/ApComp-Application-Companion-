@@ -48,6 +48,7 @@ model CvProfile {
   roles        Json    @default("[]")
   skills       Json    @default("[]")
   practices    Json    @default("[]")
+  education    Json    @default("[]")
   gapQuestions Json    @default("[]")
   isComplete   Boolean @default(false)
 

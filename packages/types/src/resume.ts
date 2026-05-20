@@ -29,6 +29,26 @@ export interface Project {
   bullets: string[];
 }
 
+/**
+ * One entry on the CV's Education section.
+ *
+ * `school`, `degree`, and dates cover what most application forms ask for.
+ * `gpa`, `major`, `activities` and `honors` are surfaced where pages ask but
+ * left undefined when the CV doesn't mention them — applications skip
+ * unknown fields rather than guess.
+ */
+export interface EducationEntry {
+  school: string;
+  degree?: string;          // e.g. "Bachelor of Science", "B.S."
+  field?: string;           // e.g. "Computer Science"
+  startDate?: string;       // YYYY-MM (or YYYY if month is unknown)
+  endDate?: string;         // YYYY-MM, or "Expected YYYY-MM"
+  gpa?: string;             // string, not number — sometimes "3.8/4.0"
+  location?: string;
+  honors?: string[];        // e.g. ["cum laude", "Dean's List"]
+  activities?: string[];
+}
+
 export interface GapQuestion {
   id: string;
   company: string;
@@ -45,6 +65,7 @@ export interface CvProfile {
   skills: SkillEntry[];
   practices: string[];
   projects?: Project[];
+  education?: EducationEntry[];
   gapQuestions: GapQuestion[];
   isComplete: boolean;
   rawText?: string;

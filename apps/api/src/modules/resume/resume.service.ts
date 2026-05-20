@@ -85,6 +85,7 @@ export class ResumeService {
       roles: row.roles as CvProfile['roles'],
       skills: row.skills as CvProfile['skills'],
       practices: row.practices as string[],
+      education: (row as any).education as CvProfile['education'] ?? [],
       gapQuestions: row.gapQuestions as CvProfile['gapQuestions'],
       isComplete: row.isComplete,
     };
@@ -100,6 +101,7 @@ export class ResumeService {
         roles: profile.roles as any,
         skills: profile.skills as any,
         practices: profile.practices as any,
+        education: (profile.education ?? []) as any,
         gapQuestions: profile.gapQuestions as any,
         isComplete: profile.isComplete,
       },
@@ -111,6 +113,7 @@ export class ResumeService {
         roles: profile.roles as any,
         skills: profile.skills as any,
         practices: profile.practices as any,
+        education: (profile.education ?? []) as any,
         gapQuestions: profile.gapQuestions as any,
         isComplete: profile.isComplete,
       },
