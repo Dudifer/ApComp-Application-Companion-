@@ -200,7 +200,7 @@ export function extractCompany(from: string, subject: string): string {
     const skipDomains = [
       'greenhouse', 'lever', 'workday', 'taleo', 'jobvite',
       'smartrecruiters', 'icims', 'brassring', 'successfactors',
-      'gmail', 'yahoo', 'outlook', 'hotmail', 'noreply', 'applytojob'
+      'gmail', 'yahoo', 'outlook', 'hotmail', 'noreply', 'applytojob',
       'notifications', 'mailer', 'bounce', 'sendgrid', 'mailgun',
     ];
     if (!skipDomains.includes(domain)) {
