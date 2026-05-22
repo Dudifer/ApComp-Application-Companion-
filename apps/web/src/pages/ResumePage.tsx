@@ -234,7 +234,7 @@ export default function ResumePage() {
       const data: CvProfile = await res.json();
       setProfile(data);
       setStage(data.gapQuestions.length > 0 ? 'gaps' : 'profile');
-      window.location.reload();
+      // window.location.reload(); 
     } catch (err: any) {
       setError(err.message ?? 'Upload failed. Please try again.');
       setStage('upload');
