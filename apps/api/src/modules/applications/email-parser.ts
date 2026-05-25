@@ -154,6 +154,7 @@ const STATUS_RULES: StatusRule[] = [
 ];
 
 export interface ParsedEmail {
+  id: string;
   status: ApplicationStatus;
   company: string;
   position?: string;

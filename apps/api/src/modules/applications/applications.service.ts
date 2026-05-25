@@ -85,27 +85,39 @@ export class ApplicationsService {
     return hoursSince >= 24;
   }
 
-  private async scrapeEmails(): Promise<void> {
+  async scrapeEmails(): Promise<void> {
     if (!this.gmailTokens) return;
 
     this.logger.log('Starting Gmail scrape...');
     this.lastScrapeTime = new Date();
 
-    const lastScrapedAt = await this.getLastScrapedAt();
-  
-    const afterDate = lastScrapedAt 
-      ? Math.floor(lastScrapedAt.getTime() / 1000)  // Gmail uses Unix seconds
-      : Math.floor((Date.now() - 365 * 24 * 60 * 60 * 1000) / 1000); // 1 year ago on first scrape
+    // Get already-processed email IDs
+    const processed = await this.prisma.processedEmail.findMany({
+      where: { userId: DEV_USER_ID },
+      select: { id: true },
+    });
+    const processedIds = new Set(processed.map(p => p.id));
+    this.logger.log(`${processedIds.size} emails already processed, skipping those`);
 
-    const query = `after:${afterDate} (${JOB_EMAIL_FILTERS.map(k => `"${k}"`).join(' OR ')})`;
+    // Always fetch last 12 months — no date cutoff so we never miss emails
+    const scraped = await this.gmail.scrapeApplicationEmails(
+      this.gmailTokens,
+      JOB_EMAIL_FILTERS,  // pass filters so gmail.service uses them in the query
+    );
 
-    const scraped = await this.gmail.scrapeApplicationEmails(this.gmailTokens);
+    this.logger.log(`Gmail returned ${scraped.length} matching emails`);
 
     let created = 0;
     let updated = 0;
+    let skipped = 0;
 
     for (const email of scraped) {
-      // Try to find existing application for this company
+      // Skip already-processed emails (dismissed, already saved, etc.)
+      if (email.id && processedIds.has(email.id)) {
+        skipped++;
+        continue;
+      }
+
       const existing = await this.prisma.application.findFirst({
         where: {
           userId: DEV_USER_ID,
@@ -115,7 +127,6 @@ export class ApplicationsService {
       });
 
       if (existing) {
-        // Only update if this email is newer and status is a progression
         const emailIsNewer = email.emailDate > existing.updatedAt;
         const isProgression = this.isStatusProgression(existing.status, email.status);
 
@@ -132,7 +143,6 @@ export class ApplicationsService {
           updated++;
         }
       } else {
-        // Create new application
         await this.prisma.application.create({
           data: {
             userId: DEV_USER_ID,
@@ -147,19 +157,20 @@ export class ApplicationsService {
         });
         created++;
       }
+
+      // Mark this email as processed so it's never re-processed
+      if (email.id) {
+        await this.prisma.processedEmail.upsert({
+          where: { id: email.id },
+          update: {},
+          create: { id: email.id, userId: DEV_USER_ID },
+        });
+        processedIds.add(email.id);
+      }
     }
 
-    this.logger.log(`Scrape complete: ${created} created, ${updated} updated`);
-
+    this.logger.log(`Scrape complete: ${created} created, ${updated} updated, ${skipped} skipped`);
     await this.setLastScrapedAt();
-  }
-
-  async forceScrape(): Promise<{ success: boolean }> {
-    if (!this.gmailTokens) {
-      throw new BadRequestException('Gmail not connected');
-    }
-    await this.scrapeEmails();
-    return { success: true };
   }
 
   private async autoRejectStale(): Promise<void> {

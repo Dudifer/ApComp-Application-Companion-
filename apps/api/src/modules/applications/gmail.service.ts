@@ -75,7 +75,7 @@ export class GmailService {
     return tokens;
   }
 
-  async scrapeApplicationEmails(tokens: GmailTokens): Promise<ScrapedApplication[]> {
+  async scrapeApplicationEmails(tokens: GmailTokens, filters: string[]): Promise<ScrapedApplication[]> {
     const oauth2Client = this.createOAuthClient();
     oauth2Client.setCredentials(tokens);
 
@@ -84,9 +84,8 @@ export class GmailService {
     // Build query — last 12 months, job-related keywords
     const oneYearAgo = new Date();
     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
-    const afterDate = Math.floor(oneYearAgo.getTime() / 1000);
-
-    const query = `after:${afterDate} (${JOB_EMAIL_FILTERS.map(k => `subject:${k}`).join(' OR ')})`;
+    const filterQuery = filters.map(k => `"${k}"`).join(' OR ');
+    const query = `(${filterQuery})`;
 
     this.logger.log(`Gmail query: ${query}`);
 
