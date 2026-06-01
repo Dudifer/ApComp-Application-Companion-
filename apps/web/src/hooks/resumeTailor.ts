@@ -1,7 +1,7 @@
 import type { Job } from '@apcomp/types';
 import type { ResumeState } from './useResumeBuilder';
 
-const PAGE_CHAR_LIMIT = 3200;
+const PAGE_CHAR_LIMIT = 3600;
 
 // ── Keyword extraction ────────────────────────────────────────────────────────
 

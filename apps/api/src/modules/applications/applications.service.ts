@@ -65,7 +65,10 @@ export class ApplicationsService {
     await this.autoRejectStale();
 
     const apps = await this.prisma.application.findMany({
-      where: { userId: DEV_USER_ID },
+      where: { 
+        userId: DEV_USER_ID,
+        status: { not: ApplicationStatus.DISMISSED },
+       },
       orderBy: { updatedAt: 'desc' },
     });
 
@@ -129,6 +132,11 @@ export class ApplicationsService {
       if (existing) {
         const emailIsNewer = email.emailDate > existing.updatedAt;
         const isProgression = this.isStatusProgression(existing.status, email.status);
+
+        if (existing.status === ApplicationStatus.DISMISSED) {
+          skipped++;
+          continue;
+        }
 
         if (emailIsNewer && isProgression) {
           await this.prisma.application.update({
@@ -198,6 +206,14 @@ export class ApplicationsService {
     }
   }
 
+  async dismissApplication(id: string): Promise<{ success: boolean }> {
+    await this.prisma.application.update({
+      where: { id },
+      data: { status: ApplicationStatus.DISMISSED },
+    });
+    return { success: true };
+  }
+
   private isStatusProgression(current: string, next: string): boolean {
     const order: Record<string, number> = {
       UNKNOWN: 0,
@@ -240,6 +256,14 @@ export class ApplicationsService {
       lastEmailDate: a.lastEmailDate?.toISOString() ?? undefined,
       isAutoRejected: a.status === 'REJECTED' && a.updatedAt < cutoff,
     };
+  }
+
+  async forceScrape(): Promise<{ success: boolean }> {
+    if (!this.gmailTokens) {
+      throw new BadRequestException('Gmail not connected');
+    }
+    await this.scrapeEmails();
+    return { success: true };
   }
 
   private async getLastScrapedAt(): Promise<Date | null> {

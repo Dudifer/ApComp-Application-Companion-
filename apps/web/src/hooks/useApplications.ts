@@ -23,6 +23,7 @@ export const STATUS_CONFIG: Record<string, { label: string; colorClass: string }
   OFFER:      { label: 'Offer',      colorClass: 'status-offer' },
   REJECTED:   { label: 'Rejected',   colorClass: 'status-rejected' },
   WITHDRAWN:  { label: 'Withdrawn',  colorClass: 'status-applied' },
+  DISMISSED: { label: 'Dismissed', colorClass: 'status-unknown' },
 };
 
 export function useApplications() {

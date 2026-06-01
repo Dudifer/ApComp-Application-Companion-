@@ -146,6 +146,7 @@ enum ApplicationStatus {
   REJECTED
   WITHDRAWN
   UNKNOWN
+  DISMISSED
 }
 
 model ProcessedEmail {

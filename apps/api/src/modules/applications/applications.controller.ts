@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Res, Body } from '@nestjs/common';
+import { Controller, Get, Post, Query, Res, Body, Patch, Param } from '@nestjs/common';
 import { Response } from 'express';
 import { ApplicationsService } from './applications.service';
 
@@ -35,5 +35,10 @@ export class ApplicationsController {
   @Post('scrape')
   async scrape() {
     return this.applicationsService.forceScrape();
+  }
+
+  @Patch(':id/dismiss')
+  async dismissApplication(@Param('id') id: string) {
+    return this.applicationsService.dismissApplication(id);
   }
 }

@@ -96,7 +96,7 @@ ${rawText}`;
     try {
       const message = await client.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
+        max_tokens: 16000,
         messages: [{ role: 'user', content: prompt }],
       });
 
@@ -148,7 +148,7 @@ Return ONLY updated JSON with two keys:
     try {
       const message = await client.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 4096,
+        max_tokens: 1600,
         messages: [{ role: 'user', content: prompt }],
       });
 

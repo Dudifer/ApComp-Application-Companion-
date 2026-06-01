@@ -556,7 +556,12 @@ export default function App() {
                   <div className="app-card" key={app.id}>
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <button
-                        onClick={() => setApplications(prev => prev.filter(a => a.id !== app.id))}
+                        onClick={() => {
+                          setApplications(prev => prev.filter(a => a.id !== app.id));
+                          fetch(`http://localhost:3000/applications/${app.id}/dismiss`, {
+                            method: 'PATCH',
+                          }).catch(err => console.warn('Failed to dismiss:', err));
+                        }}
                         style={{
                           background: 'none', border: 'none', cursor: 'pointer',
                           color: 'var(--ink-tertiary)', fontSize: 16, padding: '0 2px',

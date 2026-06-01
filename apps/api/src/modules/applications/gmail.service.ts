@@ -8,6 +8,8 @@ const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 export const JOB_EMAIL_FILTERS = [
   'application',
   'applied',
+  'your cv',
+  'your cover letter',
   'applying',
   'position',
   'role',
@@ -21,8 +23,10 @@ export const JOB_EMAIL_FILTERS = [
   'career',
   'assessment',
   'unfortunately',
+  'the profile you submitted',
   'thank you for your interest',
-  'received your application',
+  'you for expressing interest',
+  'your resume',
   'we have received',
   'thank you for applying',
   'your submission',
@@ -44,7 +48,7 @@ export interface ScrapedApplication {
   status: string;
   emailDate: Date;
   subject: string;
-  gmailMessageId: string;
+  id: string;
   matchedKeyword?: string;
 }
 
@@ -158,7 +162,7 @@ export class GmailService {
         status,
         emailDate,
         subject,
-        gmailMessageId: messageId,
+        id: messageId,
         matchedKeyword: keyword,
       };
     } catch (err) {
