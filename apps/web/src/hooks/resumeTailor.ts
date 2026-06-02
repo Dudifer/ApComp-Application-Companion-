@@ -1,7 +1,6 @@
 import type { Job } from '@apcomp/types';
 import type { ResumeState } from './useResumeBuilder';
-
-const PAGE_CHAR_LIMIT = 3600;
+import { measureResumeHeight } from './measureResumeHeight';
 
 // ── Keyword extraction ────────────────────────────────────────────────────────
 
@@ -53,39 +52,6 @@ function scoreText(text: string, keywords: string[]): number {
   return score;
 }
 
-// ── Page size estimation ──────────────────────────────────────────────────────
-
-function estimateChars(state: ResumeState): number {
-  let chars = 150; // header
-
-  if (state.aboutMe) chars += state.aboutMe.length + 50;
-
-  state.education.filter(e => e.active).forEach(e => {
-    chars += e.institution.length + e.degree.length + 60;
-  });
-
-  state.experience.filter(e => e.active).forEach(exp => {
-    chars += exp.title.length + exp.company.length + 80;
-    (exp.bullets ?? []).filter(b => b.active).forEach(b => {
-      chars += (b.text?.length ?? 0) + 20;
-    });
-  });
-
-  state.projects.filter(p => p.active).forEach(p => {
-    chars += (p.name?.length ?? 0) + (p.category?.length ?? 0) + 80;
-    chars += (p.techStack?.length ?? 0) + 40;
-    (p.bullets ?? []).filter(b => b.active).forEach(b => {
-      chars += (b.text?.length ?? 0) + 20;
-    });
-  });
-
-  state.skillGroups.filter(sg => sg.active).forEach(sg => {
-    chars += sg.label.length + sg.skills.length + 20;
-  });
-
-  return chars;
-}
-
 // ── Hideable item types ───────────────────────────────────────────────────────
 
 type HideableItem =
@@ -93,37 +59,32 @@ type HideableItem =
   | { type: 'projBullet'; projId: string; bulletId: string; score: number }
   | { type: 'skillGroup'; id: string;     score: number };
 
-// ── hiding operation ─────────────────────────────────────────────
+// ── Apply a single hide operation ─────────────────────────────────────────────
 
 function hideItem(state: ResumeState, item: HideableItem): ResumeState {
   switch (item.type) {
-
     case 'expBullet': {
       const experience = state.experience.map(exp => {
         if (exp.id !== item.expId) return exp;
         const bullets = (exp.bullets ?? []).map(b =>
           b.id === item.bulletId ? { ...b, active: false } : b
         );
-        // Hide the whole entry if no bullets remain active
         const anyActive = bullets.some(b => b.active);
         return { ...exp, active: anyActive, bullets };
       });
       return { ...state, experience };
     }
-
     case 'projBullet': {
       const projects = state.projects.map(proj => {
         if (proj.id !== item.projId) return proj;
         const bullets = (proj.bullets ?? []).map(b =>
           b.id === item.bulletId ? { ...b, active: false } : b
         );
-        // Hide the whole project if no bullets remain active
         const anyActive = bullets.some(b => b.active);
         return { ...proj, active: anyActive, bullets };
       });
       return { ...state, projects };
     }
-
     case 'skillGroup': {
       return {
         ...state,
@@ -135,12 +96,11 @@ function hideItem(state: ResumeState, item: HideableItem): ResumeState {
   }
 }
 
-// ── Build flat priority queue from current state ──────────────────────────────
+// ── Build priority queue from current state ───────────────────────────────────
 
 function buildQueue(state: ResumeState, keywords: string[]): HideableItem[] {
   const items: HideableItem[] = [];
 
-  // Experience bullets
   state.experience.forEach(exp => {
     if (!exp.active) return;
     (exp.bullets ?? []).forEach(b => {
@@ -154,7 +114,6 @@ function buildQueue(state: ResumeState, keywords: string[]): HideableItem[] {
     });
   });
 
-  // Project bullets
   state.projects.forEach(proj => {
     if (!proj.active) return;
     (proj.bullets ?? []).forEach(b => {
@@ -168,7 +127,6 @@ function buildQueue(state: ResumeState, keywords: string[]): HideableItem[] {
     });
   });
 
-  // Skill groups — treated as a single unit
   state.skillGroups.forEach(sg => {
     if (!sg.active) return;
     items.push({
@@ -178,8 +136,7 @@ function buildQueue(state: ResumeState, keywords: string[]): HideableItem[] {
     });
   });
 
-  // Sort ascending: lowest score hidden first
-  // Tiebreak: skill groups before bullets (expendable sooner)
+  // Lowest score hidden first; skill groups before bullets on tiebreak
   return items.sort((a, b) => {
     if (a.score !== b.score) return a.score - b.score;
     if (a.type === 'skillGroup' && b.type !== 'skillGroup') return -1;
@@ -196,17 +153,27 @@ export interface TailoringResult {
   itemsHidden: number;
   bulletsHidden: number;
   alreadyFit: boolean;
+  estimatedPages: number;
 }
 
 export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResult {
   const keywords = extractJobKeywords(job);
 
-  // Already fits — return untouched
-  if (estimateChars(state) <= PAGE_CHAR_LIMIT) {
-    return { state, keywordsUsed: keywords, itemsHidden: 0, bulletsHidden: 0, alreadyFit: true };
+  // Measure actual rendered height
+  const initial = measureResumeHeight(state);
+
+  if (initial.fitsOnePage) {
+    return {
+      state,
+      keywordsUsed: keywords,
+      itemsHidden: 0,
+      bulletsHidden: 0,
+      alreadyFit: true,
+      estimatedPages: initial.estimatedPages,
+    };
   }
 
-  // Reorder experience and projects by total relevance score (no hiding yet)
+  // Reorder experience and projects by relevance score
   const scoredExp = state.experience
     .map(exp => ({
       ...exp,
@@ -235,9 +202,9 @@ export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResul
   let bulletsHidden = 0;
   let itemsHidden = 0;
   let safetyLimit = 300;
+  let lastMeasure = measureResumeHeight(working);
 
-  // Iteratively hide lowest-scoring item until fits
-  while (estimateChars(working) > PAGE_CHAR_LIMIT && safetyLimit-- > 0) {
+  while (!lastMeasure.fitsOnePage && safetyLimit-- > 0) {
     const queue = buildQueue(working, keywords);
     if (queue.length === 0) break;
 
@@ -245,9 +212,9 @@ export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResul
     const prev = working;
     working = hideItem(working, toHide);
 
+    // Count hidden items
     if (toHide.type === 'expBullet') {
       bulletsHidden++;
-      // Did hiding this bullet also collapse the parent entry?
       const wasActive = prev.experience.find(e => e.id === toHide.expId)?.active;
       const nowActive = working.experience.find(e => e.id === toHide.expId)?.active;
       if (wasActive && !nowActive) itemsHidden++;
@@ -259,7 +226,17 @@ export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResul
     } else {
       itemsHidden++;
     }
+
+    // Re-measure after each hide
+    lastMeasure = measureResumeHeight(working);
   }
 
-  return { state: working, keywordsUsed: keywords, itemsHidden, bulletsHidden, alreadyFit: false };
+  return {
+    state: working,
+    keywordsUsed: keywords,
+    itemsHidden,
+    bulletsHidden,
+    alreadyFit: false,
+    estimatedPages: lastMeasure.estimatedPages,
+  };
 }

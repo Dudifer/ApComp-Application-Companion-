@@ -124,6 +124,7 @@ interface Props { state: ResumeState; }
 export function ResumePdfTemplate({ state }: Props) {
   const { header, aboutMe, education, experience, projects, skillGroups } = state;
 
+  
   const activeExp = experience.filter(e => e.active);
   const activeProjects = projects.filter(p => p.active);
   const activeSkills = skillGroups.filter(sg => sg.active);
