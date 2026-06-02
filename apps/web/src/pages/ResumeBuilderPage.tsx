@@ -463,9 +463,11 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
                   'Your full CV fits on one page — no items were hidden.'
                 ) : (
                   <>
-                    {tailoringResult.itemsHidden > 0 && `${tailoringResult.itemsHidden} item${tailoringResult.itemsHidden !== 1 ? 's' : ''} hidden. `}
-                    {tailoringResult.bulletsHidden > 0 && `${tailoringResult.bulletsHidden} bullet${tailoringResult.bulletsHidden !== 1 ? 's' : ''} trimmed. `}
-                    Items ranked by keyword relevance.
+                    {tailoringResult.projectsHidden > 0 &&
+                      `${tailoringResult.projectsHidden} project${tailoringResult.projectsHidden !== 1 ? 's' : ''} removed. `}
+                    {tailoringResult.bulletsHidden > 0 &&
+                      `${tailoringResult.bulletsHidden} bullet${tailoringResult.bulletsHidden !== 1 ? 's' : ''} trimmed. `}
+                    {`~${(tailoringResult.estimatedPages * 100).toFixed(0)}% of one page.`}
                   </>
                 )}
               </div>

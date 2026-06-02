@@ -27,6 +27,7 @@ const s = StyleSheet.create({
     color: '#555',
     marginBottom: 6,
     letterSpacing: 1,
+    lineHeight: 1.5,
     paddingTop: 2,
   },
   headerContact: {

@@ -1,6 +1,11 @@
 import type { Job } from '@apcomp/types';
 import type { ResumeState } from './useResumeBuilder';
-import { measureResumeHeight } from './measureResumeHeight';
+import { measureResumeHeight, CONTENT_HEIGHT_PX } from './measureResumeHeight';
+
+// ── How many px of overflow counts as "close enough" to switch to bullet trimming
+// A typical bullet is ~9pt body text at 1.45 line height ≈ 17px, usually 1-2 lines ≈ 20-35px
+// "Within 4 bullets" = ~140px overflow → switch to fine-trim mode
+const FINE_TRIM_THRESHOLD_PX = 140;
 
 // ── Keyword extraction ────────────────────────────────────────────────────────
 
@@ -52,54 +57,93 @@ function scoreText(text: string, keywords: string[]): number {
   return score;
 }
 
-// ── Hideable item types ───────────────────────────────────────────────────────
+function scoreProject(proj: ResumeState['projects'][0], keywords: string[]): number {
+  const text = [
+    proj.name,
+    proj.category,
+    proj.techStack,
+    ...(proj.bullets ?? []).map(b => b.text),
+  ].filter(Boolean).join(' ');
+  return scoreText(text, keywords);
+}
 
-type HideableItem =
-  | { type: 'expBullet';  expId: string;  bulletId: string; score: number }
-  | { type: 'projBullet'; projId: string; bulletId: string; score: number }
-  | { type: 'skillGroup'; id: string;     score: number };
+// ── Hide operations ───────────────────────────────────────────────────────────
 
-// ── Apply a single hide operation ─────────────────────────────────────────────
+function hideProject(state: ResumeState, projId: string): ResumeState {
+  return {
+    ...state,
+    projects: state.projects.map(p =>
+      p.id === projId ? {
+        ...p,
+        active: false,
+        bullets: (p.bullets ?? []).map(b => ({ ...b, active: false })),
+      } : p
+    ),
+  };
+}
 
-function hideItem(state: ResumeState, item: HideableItem): ResumeState {
-  switch (item.type) {
-    case 'expBullet': {
-      const experience = state.experience.map(exp => {
-        if (exp.id !== item.expId) return exp;
-        const bullets = (exp.bullets ?? []).map(b =>
-          b.id === item.bulletId ? { ...b, active: false } : b
-        );
-        const anyActive = bullets.some(b => b.active);
-        return { ...exp, active: anyActive, bullets };
-      });
-      return { ...state, experience };
-    }
-    case 'projBullet': {
-      const projects = state.projects.map(proj => {
-        if (proj.id !== item.projId) return proj;
-        const bullets = (proj.bullets ?? []).map(b =>
-          b.id === item.bulletId ? { ...b, active: false } : b
-        );
-        const anyActive = bullets.some(b => b.active);
-        return { ...proj, active: anyActive, bullets };
-      });
-      return { ...state, projects };
-    }
-    case 'skillGroup': {
-      return {
-        ...state,
-        skillGroups: state.skillGroups.map(sg =>
-          sg.id === item.id ? { ...sg, active: false } : sg
-        ),
-      };
-    }
+function hideBullet(
+  state: ResumeState,
+  type: 'exp' | 'proj',
+  parentId: string,
+  bulletId: string,
+): ResumeState {
+  if (type === 'exp') {
+    const experience = state.experience.map(exp => {
+      if (exp.id !== parentId) return exp;
+      const bullets = (exp.bullets ?? []).map(b =>
+        b.id === bulletId ? { ...b, active: false } : b
+      );
+      const anyActive = bullets.some(b => b.active);
+      return { ...exp, active: anyActive, bullets };
+    });
+    return { ...state, experience };
+  } else {
+    const projects = state.projects.map(proj => {
+      if (proj.id !== parentId) return proj;
+      const bullets = (proj.bullets ?? []).map(b =>
+        b.id === bulletId ? { ...b, active: false } : b
+      );
+      const anyActive = bullets.some(b => b.active);
+      return { ...proj, active: anyActive, bullets };
+    });
+    return { ...state, projects };
   }
 }
 
-// ── Build priority queue from current state ───────────────────────────────────
+function hideSkillGroup(state: ResumeState, id: string): ResumeState {
+  return {
+    ...state,
+    skillGroups: state.skillGroups.map(sg =>
+      sg.id === id ? { ...sg, active: false } : sg
+    ),
+  };
+}
 
-function buildQueue(state: ResumeState, keywords: string[]): HideableItem[] {
-  const items: HideableItem[] = [];
+// ── Phase 1: hide lowest-scoring whole projects ───────────────────────────────
+
+function getLowestScoringProject(
+  state: ResumeState,
+  keywords: string[],
+): string | null {
+  const active = state.projects.filter(p => p.active);
+  if (active.length === 0) return null;
+  return active
+    .map(p => ({ id: p.id, score: scoreProject(p, keywords) }))
+    .sort((a, b) => a.score - b.score)[0].id;
+}
+
+// ── Phase 2: hide lowest-scoring individual bullets + skill groups ────────────
+
+interface FineTrimItem {
+  type: 'expBullet' | 'projBullet' | 'skillGroup';
+  parentId: string;
+  bulletId?: string;
+  score: number;
+}
+
+function getFineTrimQueue(state: ResumeState, keywords: string[]): FineTrimItem[] {
+  const items: FineTrimItem[] = [];
 
   state.experience.forEach(exp => {
     if (!exp.active) return;
@@ -107,7 +151,7 @@ function buildQueue(state: ResumeState, keywords: string[]): HideableItem[] {
       if (!b.active) return;
       items.push({
         type: 'expBullet',
-        expId: exp.id,
+        parentId: exp.id,
         bulletId: b.id,
         score: scoreText(b.text ?? '', keywords),
       });
@@ -120,7 +164,7 @@ function buildQueue(state: ResumeState, keywords: string[]): HideableItem[] {
       if (!b.active) return;
       items.push({
         type: 'projBullet',
-        projId: proj.id,
+        parentId: proj.id,
         bulletId: b.id,
         score: scoreText(b.text ?? '', keywords),
       });
@@ -131,12 +175,12 @@ function buildQueue(state: ResumeState, keywords: string[]): HideableItem[] {
     if (!sg.active) return;
     items.push({
       type: 'skillGroup',
-      id: sg.id,
+      parentId: sg.id,
       score: scoreText(`${sg.label} ${sg.skills}`, keywords),
     });
   });
 
-  // Lowest score hidden first; skill groups before bullets on tiebreak
+  // Lowest score first; skill groups before bullets on tiebreak
   return items.sort((a, b) => {
     if (a.score !== b.score) return a.score - b.score;
     if (a.type === 'skillGroup' && b.type !== 'skillGroup') return -1;
@@ -150,8 +194,9 @@ function buildQueue(state: ResumeState, keywords: string[]): HideableItem[] {
 export interface TailoringResult {
   state: ResumeState;
   keywordsUsed: string[];
-  itemsHidden: number;
+  projectsHidden: number;
   bulletsHidden: number;
+  itemsHidden: number;
   alreadyFit: boolean;
   estimatedPages: number;
 }
@@ -159,84 +204,101 @@ export interface TailoringResult {
 export function tailorResumeForJob(state: ResumeState, job: Job): TailoringResult {
   const keywords = extractJobKeywords(job);
 
-  // Measure actual rendered height
   const initial = measureResumeHeight(state);
 
   if (initial.fitsOnePage) {
     return {
       state,
       keywordsUsed: keywords,
-      itemsHidden: 0,
+      projectsHidden: 0,
       bulletsHidden: 0,
+      itemsHidden: 0,
       alreadyFit: true,
       estimatedPages: initial.estimatedPages,
     };
   }
 
-  // Reorder experience and projects by relevance score
-  const scoredExp = state.experience
+  // Sort experience and projects by relevance (reorder without hiding)
+  const sortedExp = state.experience
     .map(exp => ({
       ...exp,
-      _score: scoreText(
+      _s: scoreText(
         [exp.title, exp.company, ...(exp.bullets ?? []).map(b => b.text)].join(' '),
         keywords
       ),
     }))
-    .sort((a, b) => b._score - a._score)
-    .map(({ _score, ...exp }) => exp);
+    .sort((a, b) => b._s - a._s)
+    .map(({ _s, ...exp }) => exp);
 
-  const scoredProjects = state.projects
+  const sortedProjects = state.projects
     .map(proj => ({
       ...proj,
-      _score: scoreText(
-        [proj.name, proj.category, proj.techStack, ...(proj.bullets ?? []).map(b => b.text)]
-          .filter(Boolean).join(' '),
-        keywords
-      ),
+      _s: scoreProject(proj, keywords),
     }))
-    .sort((a, b) => b._score - a._score)
-    .map(({ _score, ...proj }) => proj);
+    .sort((a, b) => b._s - a._s)
+    .map(({ _s, ...proj }) => proj);
 
-  let working: ResumeState = { ...state, experience: scoredExp, projects: scoredProjects };
+  let working: ResumeState = { ...state, experience: sortedExp, projects: sortedProjects };
 
+  let projectsHidden = 0;
   let bulletsHidden = 0;
   let itemsHidden = 0;
-  let safetyLimit = 300;
-  let lastMeasure = measureResumeHeight(working);
+  let safetyLimit = 200;
+  let measure = measureResumeHeight(working);
 
-  while (!lastMeasure.fitsOnePage && safetyLimit-- > 0) {
-    const queue = buildQueue(working, keywords);
+  // ── Phase 1: hide whole projects until close to fitting ───────────────────
+
+  while (
+    !measure.fitsOnePage &&
+    measure.overflowPx > FINE_TRIM_THRESHOLD_PX &&
+    safetyLimit-- > 0
+  ) {
+    const projId = getLowestScoringProject(working, keywords);
+    if (!projId) break;
+
+    working = hideProject(working, projId);
+    projectsHidden++;
+    itemsHidden++;
+    measure = measureResumeHeight(working);
+  }
+
+  // ── Phase 2: fine-trim bullets and skill groups until fits ────────────────
+
+  while (!measure.fitsOnePage && safetyLimit-- > 0) {
+    const queue = getFineTrimQueue(working, keywords);
     if (queue.length === 0) break;
 
     const toHide = queue[0];
-    const prev = working;
-    working = hideItem(working, toHide);
 
-    // Count hidden items
     if (toHide.type === 'expBullet') {
+      const prev = working;
+      working = hideBullet(working, 'exp', toHide.parentId, toHide.bulletId!);
       bulletsHidden++;
-      const wasActive = prev.experience.find(e => e.id === toHide.expId)?.active;
-      const nowActive = working.experience.find(e => e.id === toHide.expId)?.active;
+      const wasActive = prev.experience.find(e => e.id === toHide.parentId)?.active;
+      const nowActive = working.experience.find(e => e.id === toHide.parentId)?.active;
       if (wasActive && !nowActive) itemsHidden++;
     } else if (toHide.type === 'projBullet') {
+      const prev = working;
+      working = hideBullet(working, 'proj', toHide.parentId, toHide.bulletId!);
       bulletsHidden++;
-      const wasActive = prev.projects.find(p => p.id === toHide.projId)?.active;
-      const nowActive = working.projects.find(p => p.id === toHide.projId)?.active;
+      const wasActive = prev.projects.find(p => p.id === toHide.parentId)?.active;
+      const nowActive = working.projects.find(p => p.id === toHide.parentId)?.active;
       if (wasActive && !nowActive) itemsHidden++;
     } else {
+      working = hideSkillGroup(working, toHide.parentId);
       itemsHidden++;
     }
 
-    // Re-measure after each hide
-    lastMeasure = measureResumeHeight(working);
+    measure = measureResumeHeight(working);
   }
 
   return {
     state: working,
     keywordsUsed: keywords,
-    itemsHidden,
+    projectsHidden,
     bulletsHidden,
+    itemsHidden,
     alreadyFit: false,
-    estimatedPages: lastMeasure.estimatedPages,
+    estimatedPages: measure.estimatedPages,
   };
 }

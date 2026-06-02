@@ -67,69 +67,6 @@ export interface ResumeState {
   skillGroups: ResumeSkillGroup[];
 }
 
-//   const projects: ResumeProject[] = projectLines
-//     .filter(t => t.length > 10)
-//     .map((text, i) => ({ id: `proj-${i}`, active: true, text }));
-//   const projectsMatch = p.rawText?.match(/Personal Projects([\s\S]*?)(?:Technical Skills|$)/i);
-//   const projectLines = projectsMatch
-//     ? projectsMatch[1].split(/[•\n]/).map(l => l.trim()).filter(l => l.length > 10)
-//     : [];
-
-//   const projects: ResumeProject[] = projectLines.map((text, i) => ({
-//     id: `proj-${i}`,
-//     active: true,
-//     text,
-//   }));
-
-//   const byCategory: Record<string, SkillEntry[]> = {};
-//   p.skills.forEach(s => {
-//     (byCategory[s.category] = byCategory[s.category] ?? []).push(s);
-//   });
-
-//   const skillGroups: ResumeSkillGroup[] = Object.entries(byCategory).map(([cat, skills], i) => ({
-//     id: `sg-${i}`,
-//     active: true,
-//     label: cat.charAt(0).toUpperCase() + cat.slice(1) + 's',
-//     skills: skills.map(s => s.name).join(', '),
-//   }));
-
-//   if (skillGroups.length === 0 && p.rawText) {
-//     const primaryMatch = p.rawText.match(/Primary Languages?:\s*([^\n]+)/i);
-//     const frameworkMatch = p.rawText.match(/Frameworks? and Libraries?:\s*([^\n]+)/i);
-//     if (primaryMatch) skillGroups.push({ id: 'sg-0', active: true, label: 'Primary Languages', skills: primaryMatch[1].trim() });
-//     if (frameworkMatch) skillGroups.push({ id: 'sg-1', active: true, label: 'Frameworks and Libraries', skills: frameworkMatch[1].trim() });
-//   }
-
-//   const eduMatch = p.rawText?.match(/University of Iowa[^\n]*\n([^\n]+)\n([^\n]+)/);
-//   const education: ResumeEducation[] = [{
-//     id: 'edu-0',
-//     active: true,
-//     institution: 'University of Iowa',
-//     location: 'Iowa City, USA',
-//     degree: eduMatch?.[1]?.trim() ?? 'Computer Science (BA)',
-//     dates: eduMatch?.[2]?.trim() ?? '',
-//   }];
-
-//   const aboutMatch = p.rawText?.match(/About Me\n([\s\S]*?)(?:Work Experience|$)/i);
-//   const aboutMe = aboutMatch?.[1]?.trim() ?? '';
-
-//   return {
-//     header: {
-//       name: p.name ?? 'Your Name',
-//       title: 'Software Developer',
-//       phone: contact.phone ?? '',
-//       email: contact.email ?? p.email ?? '',
-//       linkedin: contact.linkedin ?? '',
-//       github: contact.github ?? '',
-//     },
-//     aboutMe,
-//     education,
-//     experience,
-//     projects,
-//     skillGroups,
-//   };
-// }
-
 export function useResumeBuilder(initialJob?: Job | null) {
   const [profile, setProfile] = useState<CvProfile | null>(null);
   const [baseState, setBaseState] = useState<ResumeState | null>(null);
@@ -159,10 +96,10 @@ export function useResumeBuilder(initialJob?: Job | null) {
           setState(initial);
         }
         setLoading(false);
-        console.log('Loading set to false');  // ← add this
+        console.log('Loading set to false');  
       })
       .catch((err) => {
-        console.log('Fetch error:', err);  // ← add this
+        console.log('Fetch error:', err);  
         setError('Could not load profile.');
         setLoading(false);
       });
