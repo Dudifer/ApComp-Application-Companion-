@@ -187,9 +187,11 @@ export function buildInitialState(p: CvProfile): ResumeState {
       github: contact.github ?? '',
     },
     aboutMe: extractAboutMe(rawText),
+    aboutMeActive: true,
     education: extractEducation(rawText),
     experience,
     projects: extractProjects(p),
     skillGroups: extractSkillGroups(p),
+    skillsActive: true,
   };
 }

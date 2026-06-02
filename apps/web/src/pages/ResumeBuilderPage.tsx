@@ -245,20 +245,67 @@ function SortableProjectCard({
   );
 }
 
-function SectionPanel({ title, children }: { title: string; children: React.ReactNode }) {
+// function SectionPanel({ title, children }: { title: string; children: React.ReactNode }) {
+//   const [open, setOpen] = useState(true);
+//   return (
+//     <div style={{ marginBottom: 16 }}>
+//       <button onClick={() => setOpen(o => !o)} style={{
+//         width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+//         padding: '8px 0', background: 'none', border: 'none',
+//         borderBottom: '1.5px solid var(--ink)', cursor: 'pointer', marginBottom: open ? 12 : 0,
+//       }}>
+//         <span style={{
+//           fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700,
+//           letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink)',
+//         }}>{title}</span>
+//         <span style={{ color: 'var(--ink-tertiary)', fontSize: 10 }}>{open ? '▲' : '▼'}</span>
+//       </button>
+//       {open && children}
+//     </div>
+//   );
+// }
+function SectionPanel({
+  title,
+  children,
+  active,
+  onToggle,
+}: {
+  title: string;
+  children: React.ReactNode;
+  active?: boolean;
+  onToggle?: () => void;
+}) {
   const [open, setOpen] = useState(true);
   return (
-    <div style={{ marginBottom: 16 }}>
+    <div style={{ marginBottom: 16, opacity: active === false ? 0.5 : 1 }}>
       <button onClick={() => setOpen(o => !o)} style={{
-        width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: '8px 0', background: 'none', border: 'none',
-        borderBottom: '1.5px solid var(--ink)', cursor: 'pointer', marginBottom: open ? 12 : 0,
+        width: '100%', display: 'flex', justifyContent: 'space-between',
+        alignItems: 'center', padding: '8px 0', background: 'none', border: 'none',
+        borderBottom: '1.5px solid var(--ink)', cursor: 'pointer',
+        marginBottom: open ? 12 : 0,
       }}>
         <span style={{
           fontFamily: 'var(--font-display)', fontSize: 11, fontWeight: 700,
           letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--ink)',
         }}>{title}</span>
-        <span style={{ color: 'var(--ink-tertiary)', fontSize: 10 }}>{open ? '▲' : '▼'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {onToggle && (
+            <span
+              onClick={e => { e.stopPropagation(); onToggle(); }}
+              style={{
+                fontSize: 11, padding: '2px 8px', borderRadius: 6,
+                border: `1px solid ${active === false ? 'var(--accent)' : 'var(--border)'}`,
+                color: active === false ? 'var(--accent)' : 'var(--ink-tertiary)',
+                fontFamily: 'var(--font-body)', cursor: 'pointer',
+              }}
+            >
+              {active === false ? 'Show' : 'Hide'}
+            </span>
+          )}
+          <span style={{ color: 'var(--ink-tertiary)', fontSize: 10 }}>
+            {open ? '▲' : '▼'}
+          </span>
+        </div>
       </button>
       {open && children}
     </div>
@@ -493,7 +540,11 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
 
           {/* About Me */}
           {state.aboutMe && (
-            <SectionPanel title="About Me">
+            <SectionPanel 
+              title="About Me"
+              active={state.aboutMeActive}
+              onToggle={builder.toggleAboutMe}
+            >
               <textarea
                 value={state.aboutMe}
                 onChange={e => builder.updateAboutMe(e.target.value)}
@@ -502,6 +553,7 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
                   width: '100%', padding: '8px 10px', borderRadius: 8,
                   border: '1px solid var(--border)', fontFamily: 'var(--font-body)',
                   fontSize: 12, color: 'var(--ink)', resize: 'vertical', outline: 'none',
+                  background: 'white',
                 }}
               />
             </SectionPanel>
@@ -543,7 +595,11 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
 
           {/* Technical Skills */}
           {state.skillGroups.length > 0 && (
-            <SectionPanel title="Technical Skills">
+            <SectionPanel 
+              title="Technical Skills"
+              active={state.skillsActive}
+              onToggle={builder.toggleSkills}
+            >
               {state.skillGroups.map(sg => (
                 <div key={sg.id} className="skill-group-row" style={{ opacity: sg.active ? 1 : 0.5 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>

@@ -61,10 +61,12 @@ export interface ResumeHeader {
 export interface ResumeState {
   header: ResumeHeader;
   aboutMe: string;
+  aboutMeActive: boolean;
   education: ResumeEducation[];
   experience: ResumeExperience[];
   projects: ResumeProject[];
   skillGroups: ResumeSkillGroup[];
+  skillsActive: boolean;
 }
 
 export function useResumeBuilder(initialJob?: Job | null) {
@@ -173,6 +175,14 @@ export function useResumeBuilder(initialJob?: Job | null) {
     } : s);
   }, []);
 
+  const toggleAboutMe = useCallback(() => {
+    setState(s => s ? { ...s, aboutMeActive: !s.aboutMeActive } : s);
+  }, []);
+
+  const toggleSkills = useCallback(() => {
+    setState(s => s ? { ...s, skillsActive: !s.skillsActive } : s);
+  }, []);
+
   const reorderProjects = useCallback((from: number, to: number) => {
     setState(s => {
       if (!s) return s;
@@ -241,6 +251,7 @@ export function useResumeBuilder(initialJob?: Job | null) {
     resetToFull,
     updateHeader,
     updateAboutMe,
+    toggleAboutMe,
     toggleExperience,
     reorderExperience,
     updateBullet,
@@ -250,6 +261,7 @@ export function useResumeBuilder(initialJob?: Job | null) {
     updateProject,
     toggleSkillGroup,
     updateSkillGroup,
+    toggleSkills,
     toggleProjectBullet,
     updateProjectBullet,
     updateProjectField,
