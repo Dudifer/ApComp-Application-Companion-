@@ -25,7 +25,7 @@ const s = StyleSheet.create({
     fontSize: 10,
     textAlign: 'center',
     color: '#555',
-    marginBottom: 6,
+    marginBottom: 10,
     letterSpacing: 1,
     paddingTop: 2,
   },
@@ -35,7 +35,7 @@ const s = StyleSheet.create({
     flexWrap: 'wrap',
     fontSize: 8,
     color: '#444',
-    marginBottom: 8,
+    marginBottom: 4,
   },
   contactItem: { marginHorizontal: 4 },
   contactSep: { color: '#aaa' },
@@ -48,7 +48,7 @@ const s = StyleSheet.create({
     borderBottomColor: '#1a1814',
     paddingBottom: 2,
     marginBottom: 6,
-    marginTop: 10,
+    marginTop: 8,
   },
 /* Experience Format */ 
   expBlock: { marginBottom: 6 },
@@ -104,7 +104,7 @@ const s = StyleSheet.create({
   eduDegreeRow: { flexDirection: 'row', justifyContent: 'space-between' },
   eduDegree: { fontFamily: 'Helvetica-Oblique', fontSize: 9.5, color: '#333' },
   eduDates: { fontSize: 9, color: '#555' },
-  aboutText: { fontSize: 9, color: '#222', lineHeight: 1.5 },
+  aboutText: { fontSize: 9, color: '#222', lineHeight: 1.5, textAlign: 'center', },
   
   skillRow: { flexDirection: 'row', marginBottom: 3 },
   skillLabel: { fontFamily: 'Helvetica-Bold', fontSize: 9, width: 140 },
@@ -124,6 +124,7 @@ interface Props { state: ResumeState; }
 export function ResumePdfTemplate({ state }: Props) {
   const { header, aboutMe, education, experience, projects, skillGroups } = state;
 
+  
   const activeExp = experience.filter(e => e.active);
   const activeProjects = projects.filter(p => p.active);
   const activeSkills = skillGroups.filter(sg => sg.active);
@@ -166,7 +167,7 @@ export function ResumePdfTemplate({ state }: Props) {
         )}
 
         {/* About Me */}
-        {aboutMe ? (
+        {aboutMe && state.aboutMeActive ? (
           <View>
             <Text style={s.sectionHeader}>About Me</Text>
             <Text style={s.aboutText}>{aboutMe}</Text>
@@ -242,7 +243,7 @@ export function ResumePdfTemplate({ state }: Props) {
         )}
 
         {/* Technical Skills */}
-        {activeSkills.length > 0 && (
+        {activeSkills.length > 0 && state.skillsActive && (
           <View>
             <Text style={s.sectionHeader}>Technical Skills</Text>
             {activeSkills.map(sg => (

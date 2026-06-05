@@ -47,6 +47,8 @@ export default function App() {
 
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
 
+  const [scraping, setScraping] = useState(false);
+  
   useEffect(() => {
     const handler = (e: Event) => {
       setActive((e as CustomEvent).detail);
@@ -520,16 +522,27 @@ export default function App() {
                   Connect Gmail
                 </button>
               ) : (
-                <button onClick={() => {
-                  fetch('http://localhost:3000/applications/scrape', { method: 'POST' })
-                    .then(() => window.location.reload());
-                }} style={{
-                  fontSize: 12, padding: '4px 12px', borderRadius: 8,
-                  background: 'none', color: 'var(--ink-secondary)',
-                  border: '1px solid var(--border)',
-                  cursor: 'pointer', fontFamily: 'var(--font-body)',
-                }}>
-                  ↻ Refresh emails
+                <button
+                  onClick={() => {
+                    if (scraping) return;
+                    setScraping(true);
+                    fetch('http://localhost:3000/applications/scrape', { method: 'POST' })
+                      .then(() => window.location.reload())
+                      .catch(err => console.warn('Scrape failed:', err))
+                      .finally(() => setScraping(false));
+                  }}
+                  disabled={scraping}
+                  style={{
+                    fontSize: 12, padding: '4px 12px', borderRadius: 8,
+                    background: 'none',
+                    color: scraping ? 'var(--ink-tertiary)' : 'var(--ink-secondary)',
+                    border: `1px solid ${scraping ? 'var(--surface-3)' : 'var(--border)'}`,
+                    cursor: scraping ? 'not-allowed' : 'pointer',
+                    fontFamily: 'var(--font-body)',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  {scraping ? '⟳ Scraping...' : '↻ Refresh emails'}
                 </button>
               )}
                 <a className="section-link" onClick={() => setActive('Applications')}>View all →</a>

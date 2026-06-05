@@ -25,7 +25,8 @@ export class ApplicationsService {
   private readonly logger = new Logger(ApplicationsService.name);
   private lastScrapeTime: Date | null = null;
   private gmailTokens: GmailTokens | null = null;
-
+  private isScraping = false;
+  
   constructor(
     private readonly prisma: PrismaService,
     private readonly gmail: GmailService,
@@ -258,12 +259,23 @@ export class ApplicationsService {
     };
   }
 
-  async forceScrape(): Promise<{ success: boolean }> {
+  async forceScrape(): Promise<{ success: boolean } | { busy: boolean }> {
+    if (this.isScraping) {
+      this.logger.warn('Scrape already in progress, ignoring request');
+      return { busy: true };
+    }
+
     if (!this.gmailTokens) {
       throw new BadRequestException('Gmail not connected');
     }
-    await this.scrapeEmails();
-    return { success: true };
+
+    this.isScraping = true;
+    try {
+      await this.scrapeEmails();
+      return { success: true };
+    } finally {
+      this.isScraping = false; 
+    }
   }
 
   private async getLastScrapedAt(): Promise<Date | null> {
