@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { useApi } from '../lib/api';
 
 interface Application {
   id: string;
@@ -49,13 +48,14 @@ export default function AllApplicationsPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('ALL');
   const [search, setSearch] = useState('');
+  const api = useApi();
 
   useEffect(() => {
-    fetch(`${API}/applications`)
+    api.get('/applications')
       .then(r => r.json())
       .then(data => { setApps(data); setLoading(false); })
       .catch(() => setLoading(false));
-  }, []);
+  }, [api]);
 
   const statuses = ['ALL', ...Object.keys(STATUS_CONFIG)];
 

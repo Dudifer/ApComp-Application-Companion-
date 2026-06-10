@@ -1,20 +1,21 @@
 import { useState, useEffect } from 'react';
 import type { Job } from '@apcomp/types';
-
-const API = 'http://localhost:3000';
+import { useApi } from '../lib/api';
 
 export function useJobs() {
+  const api = useApi();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch(`${API}/jobs/recommended`)
+    api.get('/jobs/recommended')
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) setJobs(data);
       })
       .catch(() => {});
-  }, []);
-
+  }, [api]);
+  // }, []);
+  
   return { jobs, loading };
 }
