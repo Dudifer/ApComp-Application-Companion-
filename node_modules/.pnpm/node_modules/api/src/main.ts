@@ -25,7 +25,6 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
   });
-  await app.listen(process.env.PORT ?? 3000);
 
   // General API limit
   app.use(rateLimit({
@@ -50,6 +49,6 @@ async function bootstrap() {
     message: 'Too many job searches, please wait before trying again.',
   }));
 
-  await app.listen(3000);
+  await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

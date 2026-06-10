@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Job } from '@apcomp/types';
-
-const API = 'http://localhost:3000';
+import { useApi } from '../lib/api';
 
 interface SearchQuery {
   title: string;
@@ -43,10 +42,11 @@ export default function JobSearchPage({
   const [results, setResults] = useState<Job[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [searchMsg, setSearchMsg] = useState('Fetching jobs...');
+  const api = useApi();
 
   // Populate query from CV profile on load
   useEffect(() => {
-    fetch(`${API}/resume/profile`)
+    api.get('/resume/profile')
       .then(r => r.json())
       .then(p => {
         if (!p?.roles?.length) return;
@@ -65,7 +65,7 @@ export default function JobSearchPage({
         }));
       })
       .catch(() => {});
-  }, []);
+  }, [api]);
 
   const handleSearch = async () => {
     setError(null);
@@ -84,8 +84,7 @@ export default function JobSearchPage({
     }, 2500);
 
     try {
-      const res = await fetch(`${API}/jobs/search`, {
-        method: 'POST',
+      const res = await api.post('/jobs/search', {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(query),
       });

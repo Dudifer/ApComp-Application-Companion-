@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import type { CvProfile, GapQuestion, SkillEntry } from '@apcomp/types';
-
-const API = 'http://localhost:3000';
+import { useApi } from '../lib/api';
 
 const CATEGORY_COLORS: Record<string, string> = {
   language:    '#c9622f',
@@ -201,6 +200,7 @@ function GapSection({
 }
 
 export default function ResumePage() {
+  const api = useApi();
   const [stage, setStage] = useState<Stage>('upload');
   const [profile, setProfile] = useState<CvProfile | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -229,7 +229,7 @@ export default function ResumePage() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`${API}/resume/upload`, { method: 'POST', body: formData });
+      const res = await api.post('/resume/upload', { body: formData });
       if (!res.ok) throw new Error(await res.text());
       const data: CvProfile = await res.json();
       setProfile(data);
@@ -256,9 +256,7 @@ export default function ResumePage() {
     setProcessingMsg('Refining your profile with your answers...');
     try {
       const payload = Object.entries(answers).map(([questionId, answer]) => ({ questionId, answer }));
-      const res = await fetch(`${API}/resume/gap-answers`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const res = await api.post('/resume/gap-answers', {
         body: JSON.stringify({ answers: payload }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -292,10 +290,8 @@ export default function ResumePage() {
   const totalAnswered = Object.keys(answers).length;
   const totalQuestions = profile?.gapQuestions.length ?? 0;
 
-
   useEffect(() => {
-    fetch(`${API}/resume/profile`)
-      .then(r => r.json())
+    api.get('/resume/profile')
       .then((p: CvProfile) => {
         if (p && p.name) {
           setProfile(p);
@@ -303,7 +299,7 @@ export default function ResumePage() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [api]);
 
   return (
     <>
