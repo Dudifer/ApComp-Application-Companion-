@@ -29,7 +29,7 @@ async function bootstrap() {
   // General API limit
   app.use(rateLimit({
       windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 200,                  // 200 requests per window
+      max: 200, // 200 requests per window
       message: 'Too many requests, please try again later.',
       standardHeaders: true,
       legacyHeaders: false,
@@ -39,7 +39,7 @@ async function bootstrap() {
   // Stricter limit for AI-heavy endpoints (CV upload, job search)
   app.use('/resume/upload', rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
-    max: 10,                   // 10 uploads per hour
+    max: 10, // 10 uploads per hour
     message: 'Too many CV uploads, please wait before trying again.',
   }));
 
@@ -74,6 +74,6 @@ async function bootstrap() {
     message: 'Too many job searches, please wait before trying again.',
   }));
 
-  await app.listen(3000);
+  await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
