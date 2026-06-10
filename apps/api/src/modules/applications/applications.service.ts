@@ -4,7 +4,7 @@ import { GmailService, GmailTokens, JOB_EMAIL_FILTERS } from './gmail.service';
 import { ApplicationStatus } from '../../../generated/prisma';
 import { BadRequestException } from '@nestjs/common/exceptions/bad-request.exception';
 
-const DEV_USER_ID = 'dev-user';
+// const DEV_USER_ID = 'dev-user';
 const SCRAPE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const AUTO_REJECT_DAYS = 60;
 
@@ -40,34 +40,32 @@ export class ApplicationsService {
     return this.gmail.getAuthUrl();
   }
 
-  async handleOAuthCallback(code: string): Promise<void> {
+  async handleOAuthCallback(userId: string, code: string): Promise<void> {
     const tokens = await this.gmail.exchangeCode(code);
     this.gmailTokens = tokens;
     this.logger.log('Gmail OAuth tokens stored');
     // Trigger immediate scrape
-    await this.scrapeEmails();
+    await this.scrapeEmails(userId);
   }
 
-  isGmailConnected(): boolean {
+  isGmailConnected(userId: string): boolean {
     return !!this.gmailTokens?.access_token;
   }
 
-  async getApplications(): Promise<ApplicationDto[]> {
-    await this.ensureDevUser();
-
+  async getApplications(userId: string): Promise<ApplicationDto[]> {
     // Scrape if connected and due
-    if ((await this.isGmailConnected()) && (await this.shouldScrape())) {
-      await this.scrapeEmails().catch(err =>
+    if ((await this.isGmailConnected(userId)) && (await this.shouldScrape(userId))) {
+      await this.scrapeEmails(userId).catch(err =>
         this.logger.warn('Scrape failed, returning cached data:', err),
       );
     }
 
     // Auto-reject stale applications
-    await this.autoRejectStale();
+    await this.autoRejectStale(userId);
 
     const apps = await this.prisma.application.findMany({
       where: { 
-        userId: DEV_USER_ID,
+        userId,
         status: { not: ApplicationStatus.DISMISSED },
        },
       orderBy: { updatedAt: 'desc' },
@@ -76,20 +74,20 @@ export class ApplicationsService {
     return apps.map(a => this.mapToDto(a));
   }
 
-  async getDashboardApplications(): Promise<ApplicationDto[]> {
-    const all = await this.getApplications();
+  async getDashboardApplications(userId: string): Promise<ApplicationDto[]> {
+    const all = await this.getApplications(userId);
     // Dashboard shows only active (non-rejected, non-withdrawn) applications
     return all.filter(a => !['REJECTED', 'WITHDRAWN'].includes(a.status));
   }
 
-  private async shouldScrape(): Promise<boolean> {
-    const lastScrapedAt = await this.getLastScrapedAt();
+  private async shouldScrape(userId: string): Promise<boolean> {
+    const lastScrapedAt = await this.getLastScrapedAt(userId);
     if (!lastScrapedAt) return true;
     const hoursSince = (Date.now() - lastScrapedAt.getTime()) / (1000 * 60 * 60);
     return hoursSince >= 24;
   }
 
-  async scrapeEmails(): Promise<void> {
+  async scrapeEmails(userId: string): Promise<void> {
     if (!this.gmailTokens) return;
 
     this.logger.log('Starting Gmail scrape...');
@@ -97,7 +95,7 @@ export class ApplicationsService {
 
     // Get already-processed email IDs
     const processed = await this.prisma.processedEmail.findMany({
-      where: { userId: DEV_USER_ID },
+      where: { userId },
       select: { id: true },
     });
     const processedIds = new Set(processed.map(p => p.id));
@@ -124,7 +122,7 @@ export class ApplicationsService {
 
       const existing = await this.prisma.application.findFirst({
         where: {
-          userId: DEV_USER_ID,
+          userId,
           company: { equals: email.company, mode: 'insensitive' },
         },
         orderBy: { appliedAt: 'desc' },
@@ -154,7 +152,7 @@ export class ApplicationsService {
       } else {
         await this.prisma.application.create({
           data: {
-            userId: DEV_USER_ID,
+            userId,
             company: email.company,
             role: email.position ?? 'Unknown Position',
             status: ApplicationStatus[email.status as keyof typeof ApplicationStatus] ?? ApplicationStatus.UNKNOWN,
@@ -172,23 +170,23 @@ export class ApplicationsService {
         await this.prisma.processedEmail.upsert({
           where: { id: email.id },
           update: {},
-          create: { id: email.id, userId: DEV_USER_ID },
+          create: { id: email.id, userId },
         });
         processedIds.add(email.id);
       }
     }
 
     this.logger.log(`Scrape complete: ${created} created, ${updated} updated, ${skipped} skipped`);
-    await this.setLastScrapedAt();
+    await this.setLastScrapedAt(userId);
   }
 
-  private async autoRejectStale(): Promise<void> {
+  private async autoRejectStale(userId: string): Promise<void> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - AUTO_REJECT_DAYS);
 
     const result = await this.prisma.application.updateMany({
       where: {
-        userId: DEV_USER_ID,
+        userId,
         status: {
           in: [
             ApplicationStatus.APPLIED,
@@ -207,9 +205,12 @@ export class ApplicationsService {
     }
   }
 
-  async dismissApplication(id: string): Promise<{ success: boolean }> {
+  async dismissApplication(userId: string, id: string): Promise<{ success: boolean }> {
     await this.prisma.application.update({
-      where: { id },
+      where: {
+        id,
+        userId,
+      },
       data: { status: ApplicationStatus.DISMISSED },
     });
     return { success: true };
@@ -230,17 +231,17 @@ export class ApplicationsService {
     return (order[next] ?? 0) >= (order[current] ?? 0);
   }
 
-  private async ensureDevUser() {
-    return this.prisma.user.upsert({
-      where: { id: DEV_USER_ID },
-      update: {},
-      create: {
-        id: DEV_USER_ID,
-        email: process.env.DEV_USER_EMAIL ?? 'dev@apcomp.local',
-        name: 'Dev User',
-      },
-    });
-  }
+  // private async ensureDevUser() {
+  //   return this.prisma.user.upsert({
+  //     where: { userId },
+  //     update: {},
+  //     create: {
+  //       userId,
+  //       email: process.env.DEV_USER_EMAIL ?? 'dev@apcomp.local',
+  //       name: 'Dev User',
+  //     },
+  //   });
+  // }
 
   private mapToDto(a: any): ApplicationDto {
     const cutoff = new Date();
@@ -259,7 +260,7 @@ export class ApplicationsService {
     };
   }
 
-  async forceScrape(): Promise<{ success: boolean } | { busy: boolean }> {
+  async forceScrape(userId: string): Promise<{ success: boolean } | { busy: boolean }> {
     if (this.isScraping) {
       this.logger.warn('Scrape already in progress, ignoring request');
       return { busy: true };
@@ -271,25 +272,25 @@ export class ApplicationsService {
 
     this.isScraping = true;
     try {
-      await this.scrapeEmails();
+      await this.scrapeEmails(userId);
       return { success: true };
     } finally {
-      this.isScraping = false; 
+      this.isScraping = false;
     }
   }
 
-  private async getLastScrapedAt(): Promise<Date | null> {
+  private async getLastScrapedAt(userId: string): Promise<Date | null> {
     const settings = await this.prisma.userSettings.findUnique({
-      where: { userId: DEV_USER_ID },
+      where: { userId },
     });
     return settings?.lastScrapedAt ?? null;
   }
 
-  private async setLastScrapedAt(): Promise<void> {
+  private async setLastScrapedAt(userId: string): Promise<void> {
     await this.prisma.userSettings.upsert({
-      where: { userId: DEV_USER_ID },
+      where: { userId },
       update: { lastScrapedAt: new Date() },
-      create: { userId: DEV_USER_ID, lastScrapedAt: new Date() },
+      create: { userId, lastScrapedAt: new Date() },
     });
   }
 }
