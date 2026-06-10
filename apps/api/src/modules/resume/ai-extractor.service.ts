@@ -9,7 +9,7 @@ export class AiExtractorService {
   private readonly logger = new Logger(AiExtractorService.name);
 
   async extractProfile(rawText: string): Promise<CvProfile> {
-    const prompt = `You are a CV parser. Extract a structured developer profile from this CV text.
+    const prompt = `You are a CV parser. Extract a structured (likely developer) profile from this CV text.
 
 For each role, calculate durationMonths from the dates. If end date is missing, assume it is current (today: ${new Date().toISOString().slice(0, 7)}).
 
@@ -127,7 +127,7 @@ ${rawText}`;
 
     if (!answerSummary) return { ...profile, gapQuestions: answeredQuestions, isComplete: true };
 
-    const prompt = `You have a developer's CV profile and additional answers they provided to gap questions.
+    const prompt = `You have a someone's CV profile and additional answers they provided to gap questions.
 Update the profile's skills and role technologies to reflect the new information.
 
 Current profile skills (JSON):
