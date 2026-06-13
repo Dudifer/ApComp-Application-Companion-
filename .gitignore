@@ -15,10 +15,14 @@ build/
 .env.local
 .env*.local
 .env.production
+<<<<<<< HEAD
 env.production
 env.local
 env.*.local
 *.env.production
+=======
+
+>>>>>>> 31bcb2627c94c2cde2a1c71e25170f18ff43ea03
 # Generated
 apps/api/generated/
 apps/api/prisma/migrations/
