@@ -28,12 +28,13 @@ async function bootstrap() {
 
   // General API limit
   app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  message: 'Too many requests, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-}));
+      windowMs: 15 * 60 * 1000,
+      max: 200,
+      message: 'Too many requests, please try again later.',
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
+  );
 
 app.use('/resume/upload', rateLimit({
   windowMs: 60 * 60 * 1000,

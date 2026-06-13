@@ -27,7 +27,4 @@ dist-ssr
 storybook-static
 
 .env
-.env.local
 .env.production
-*.env
-*.env.production
