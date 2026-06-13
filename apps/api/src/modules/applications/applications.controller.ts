@@ -38,7 +38,7 @@ export class ApplicationsController extends AuthenticatedController {
     res.redirect('http://localhost:5173');
   }
   @Post('scrape')
-  @UseGuards(ClerkAuthGuard)
+  @UseGuards(ClerkAuthGuard) 
   async scrape(@Req() req: any) {
     return this.applicationsService.forceScrape(req.userId);
   }

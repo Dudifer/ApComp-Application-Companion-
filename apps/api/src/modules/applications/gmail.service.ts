@@ -82,7 +82,8 @@ export class GmailService {
     const oauth2Client = this.createOAuthClient();
     oauth2Client.setCredentials(tokens);
 
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    google.options({ auth: oauth2Client });
+    const gmail = google.gmail('v1');
 
     // Build query — last 12 months, job-related keywords
     const oneYearAgo = new Date();

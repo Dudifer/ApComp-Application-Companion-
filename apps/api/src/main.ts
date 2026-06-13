@@ -37,10 +37,11 @@ async function bootstrap() {
   );
 
 app.use('/resume/upload', rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 10,
-  message: 'Too many CV uploads, please wait before trying again.',
-}));
+      windowMs: 60 * 60 * 1000,
+      max: 10,
+      message: 'Too many CV uploads, please wait before trying again.',
+    })
+);
 
 app.use('/jobs/search', rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -49,6 +50,5 @@ app.use('/jobs/search', rateLimit({
 }));
 
 // ONE listen call at the end
-await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();
