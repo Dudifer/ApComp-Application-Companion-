@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { GmailService, GmailTokens, JOB_EMAIL_FILTERS } from './gmail.service';
 import { ApplicationStatus } from '../../../generated/prisma';
 import { BadRequestException } from '@nestjs/common/exceptions/bad-request.exception';
+import { UserService } from '../../auth/user.service';
 
 // const DEV_USER_ID = 'dev-user';
 const SCRAPE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -30,6 +31,7 @@ export class ApplicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gmail: GmailService,
+    private readonly userService: UserService,
   ) {}
 
   setGmailTokens(tokens: GmailTokens) {
@@ -40,21 +42,28 @@ export class ApplicationsService {
     return this.gmail.getAuthUrl();
   }
 
-  async handleOAuthCallback(userId: string, code: string): Promise<void> {
+  async handleOAuthCallback(clerkId: string, code: string): Promise<void> {
+    const dbUserId = await this.userService.ensureUser(clerkId);
     const tokens = await this.gmail.exchangeCode(code);
     this.gmailTokens = tokens;
     this.logger.log('Gmail OAuth tokens stored');
-    // Trigger immediate scrape
-    await this.scrapeEmails(userId);
+    await this.scrapeEmails(dbUserId);
+  }
+
+  /** Resolves a Clerk ID to the internal DB user ID, creating the user if needed. */
+  private async resolveUserId(clerkId: string): Promise<string> {
+    return this.userService.ensureUser(clerkId);
   }
 
   isGmailConnected(userId: string): boolean {
     return !!this.gmailTokens?.access_token;
   }
 
-  async getApplications(userId: string): Promise<ApplicationDto[]> {
+  async getApplications(clerkId: string): Promise<ApplicationDto[]> {
+    const userId = await this.resolveUserId(clerkId);
+
     // Scrape if connected and due
-    if ((await this.isGmailConnected(userId)) && (await this.shouldScrape(userId))) {
+    if (this.isGmailConnected(clerkId) && (await this.shouldScrape(userId))) {
       await this.scrapeEmails(userId).catch(err =>
         this.logger.warn('Scrape failed, returning cached data:', err),
       );
@@ -64,10 +73,10 @@ export class ApplicationsService {
     await this.autoRejectStale(userId);
 
     const apps = await this.prisma.application.findMany({
-      where: { 
+      where: {
         userId,
         status: { not: ApplicationStatus.DISMISSED },
-       },
+      },
       orderBy: { updatedAt: 'desc' },
     });
 
@@ -205,12 +214,10 @@ export class ApplicationsService {
     }
   }
 
-  async dismissApplication(userId: string, id: string): Promise<{ success: boolean }> {
+  async dismissApplication(clerkId: string, id: string): Promise<{ success: boolean }> {
+    const userId = await this.resolveUserId(clerkId);
     await this.prisma.application.update({
-      where: {
-        id,
-        userId,
-      },
+      where: { id, userId },
       data: { status: ApplicationStatus.DISMISSED },
     });
     return { success: true };
@@ -260,7 +267,7 @@ export class ApplicationsService {
     };
   }
 
-  async forceScrape(userId: string): Promise<{ success: boolean } | { busy: boolean }> {
+  async forceScrape(clerkId: string): Promise<{ success: boolean } | { busy: boolean }> {
     if (this.isScraping) {
       this.logger.warn('Scrape already in progress, ignoring request');
       return { busy: true };
@@ -270,6 +277,7 @@ export class ApplicationsService {
       throw new BadRequestException('Gmail not connected');
     }
 
+    const userId = await this.resolveUserId(clerkId);
     this.isScraping = true;
     try {
       await this.scrapeEmails(userId);
