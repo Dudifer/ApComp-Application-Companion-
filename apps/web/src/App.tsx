@@ -575,7 +575,7 @@ export default function App() {
                         <button
                           onClick={() => {
                             setApplications(prev => prev.filter(a => a.id !== app.id));
-                            fetch(`http://localhost:3000/applications/${app.id}/dismiss`, {
+                            api.get(`/applications/${app.id}/dismiss`, {
                               method: 'PATCH',
                             }).catch(err => console.warn('Failed to dismiss:', err));
                           }}

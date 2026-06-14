@@ -6,16 +6,17 @@ import { AuthenticatedController } from '../../auth/authenticated.controller';
 import { ClerkAuthGuard } from '../../auth/clerk.guard';
 
 @Controller('applications')
-@UseGuards(ClerkAuthGuard)
 export class ApplicationsController extends AuthenticatedController {
   constructor(private readonly applicationsService: ApplicationsService) { super(); }
 
   @Get()
+  @UseGuards(ClerkAuthGuard)  
   getAll(@Req() req: any) {
     return this.applicationsService.getApplications(req.userId);
   }
 
   @Get('dashboard')
+  @UseGuards(ClerkAuthGuard)
   getDashboard(@Req() req: any) {
     return this.applicationsService.getDashboardApplications(req.userId);
   }
@@ -37,11 +38,13 @@ export class ApplicationsController extends AuthenticatedController {
     res.redirect('http://localhost:5173');
   }
   @Post('scrape')
+  @UseGuards(ClerkAuthGuard)
   async scrape(@Req() req: any) {
     return this.applicationsService.forceScrape(req.userId);
   }
 
   @Patch(':id/dismiss')
+  @UseGuards(ClerkAuthGuard)
   async dismissApplication(@Req() req: any, @Param('id') id: string) {
     return this.applicationsService.dismissApplication(req.userId, id);
   }
