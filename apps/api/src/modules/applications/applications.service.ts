@@ -38,8 +38,11 @@ export class ApplicationsService {
     this.gmailTokens = tokens;
   }
 
-  getGmailAuthUrl(): string {
-    return this.gmail.getAuthUrl();
+  getGmailAuthUrl(clerkId: string): string {
+    // Encode the Clerk ID in OAuth state so the callback can identify the user
+    // without needing an auth header (Google's redirect carries none).
+    const state = Buffer.from(clerkId).toString('base64url');
+    return this.gmail.getAuthUrl(state);
   }
 
   async handleOAuthCallback(clerkId: string, code: string): Promise<void> {
@@ -62,11 +65,12 @@ export class ApplicationsService {
   async getApplications(clerkId: string): Promise<ApplicationDto[]> {
     const userId = await this.resolveUserId(clerkId);
 
-    // Scrape if connected and due
-    if (this.isGmailConnected(clerkId) && (await this.shouldScrape(userId))) {
-      await this.scrapeEmails(userId).catch(err =>
-        this.logger.warn('Scrape failed, returning cached data:', err),
-      );
+    // Scrape if connected, not already running, and due
+    if (!this.isScraping && this.isGmailConnected(clerkId) && (await this.shouldScrape(userId))) {
+      this.isScraping = true;
+      this.scrapeEmails(userId)
+        .catch(err => this.logger.warn('Background scrape failed:', err))
+        .finally(() => { this.isScraping = false; });
     }
 
     // Auto-reject stale applications

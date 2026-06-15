@@ -1,16 +1,28 @@
-import { Controller, Get, Post, Query, Res, Body, Patch, Param, Req, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Query,
+  Res,
+  Patch,
+  Param,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Response } from 'express';
 import { ApplicationsService } from './applications.service';
-import { Request } from 'express';
 import { AuthenticatedController } from '../../auth/authenticated.controller';
 import { ClerkAuthGuard } from '../../auth/clerk.guard';
+import { Public } from '../../auth/public.decorator';
 
 @Controller('applications')
 export class ApplicationsController extends AuthenticatedController {
-  constructor(private readonly applicationsService: ApplicationsService) { super(); }
+  constructor(private readonly applicationsService: ApplicationsService) {
+    super();
+  }
 
   @Get()
-  @UseGuards(ClerkAuthGuard)  
+  @UseGuards(ClerkAuthGuard)
   getAll(@Req() req: any) {
     return this.applicationsService.getApplications(req.userId);
   }
@@ -21,24 +33,35 @@ export class ApplicationsController extends AuthenticatedController {
     return this.applicationsService.getDashboardApplications(req.userId);
   }
 
+  // Auth guard required — we need req.userId to encode into OAuth state
   @Get('gmail/auth')
+  @UseGuards(ClerkAuthGuard)
   getGmailAuthUrl(@Req() req: any) {
-    return { url: this.applicationsService.getGmailAuthUrl() };
+    return { url: this.applicationsService.getGmailAuthUrl(req.userId) };
   }
 
   @Get('gmail/status')
+  @UseGuards(ClerkAuthGuard)
   getGmailStatus(@Req() req: any) {
     return { connected: this.applicationsService.isGmailConnected(req.userId) };
   }
 
+  // Public — Google's redirect carries no Authorization header.
+  // The user is identified by decoding the state param we encoded in getGmailAuthUrl.
   @Get('gmail/callback')
-  async handleCallback(@Req() req: any, @Query('code') code: string, @Res() res: Response) {
-    await this.applicationsService.handleOAuthCallback(req.userId, code);
-    // Redirect back to the frontend dashboard
-    res.redirect('http://localhost:5173');
+  @Public()
+  async handleCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Res() res: Response,
+  ) {
+    const clerkId = Buffer.from(state, 'base64url').toString('utf-8');
+    await this.applicationsService.handleOAuthCallback(clerkId, code);
+    res.redirect(process.env.FRONTEND_URL ?? 'http://localhost:5173');
   }
+
   @Post('scrape')
-  @UseGuards(ClerkAuthGuard) 
+  @UseGuards(ClerkAuthGuard)
   async scrape(@Req() req: any) {
     return this.applicationsService.forceScrape(req.userId);
   }
