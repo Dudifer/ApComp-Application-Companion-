@@ -13,10 +13,8 @@ async function bootstrap() {
   ].filter(Boolean);
 
   app.enableCors({
-    // Allow the web app + any chrome-extension:// origin (so the popup/content
-    // script can hit the API directly during dev).
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true); // curl/postman
+      if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
       if (origin.startsWith('chrome-extension://')) return callback(null, true);
       return callback(new Error(`CORS: origin ${origin} not allowed`), false);
@@ -26,29 +24,27 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // General API limit
   app.use(rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 200,
-      message: 'Too many requests, please try again later.',
-      standardHeaders: true,
-      legacyHeaders: false,
-    }),
-  );
+    windowMs: 15 * 60 * 1000,
+    max: process.env.NODE_ENV === 'production' ? 200 : 2000,
+    message: 'Too many requests, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+  }));
 
-app.use('/resume/upload', rateLimit({
-      windowMs: 60 * 60 * 1000,
-      max: 10,
-      message: 'Too many CV uploads, please wait before trying again.',
-    })
-);
+  app.use('/resume/upload', rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 10,
+    message: 'Too many CV uploads, please wait before trying again.',
+  }));
 
-app.use('/jobs/search', rateLimit({
-  windowMs: 60 * 60 * 1000,
-  max: 20,
-  message: 'Too many job searches, please wait before trying again.',
-}));
+  app.use('/jobs/search', rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 20,
+    message: 'Too many job searches, please wait before trying again.',
+  }));
 
-// ONE listen call at the end
+  await app.listen(process.env.PORT ?? 3000);
 }
+
 bootstrap();
