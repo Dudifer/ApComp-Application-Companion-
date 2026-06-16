@@ -11,12 +11,6 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
   
-  judge0:
-    image: judge0/judge0:latest
-    ports:
-      - "2358:2358"
-    privileged: true
-    restart: unless-stopped
 
 volumes:
   pgdata:

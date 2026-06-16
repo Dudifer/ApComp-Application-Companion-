@@ -138,7 +138,7 @@ export class GmailService {
       const msg = await gmail.users.messages.get({
         userId: 'me',
         id: messageId,
-        format: 'metadata',
+        format: 'full',  // ← change from 'metadata' to 'full' to get body
         metadataHeaders: ['From', 'Subject', 'Date'],
       });
 
@@ -152,7 +152,9 @@ export class GmailService {
 
       if (!subject) return null;
 
-      const { status, keyword } = detectStatus(subject, '');
+      const body = this.extractBody(msg.data.payload);
+
+      const { status, keyword } = detectStatus(subject, body); // ← pass body
       if (status === 'UNKNOWN') return null;
 
       const emailDate = dateStr ? new Date(dateStr) : new Date();
@@ -172,5 +174,38 @@ export class GmailService {
       this.logger.warn(`Failed to parse message ${messageId}:`, err);
       return null;
     }
+  }
+
+  private extractBody(payload: any): string {
+    if (!payload) return '';
+
+    // Direct body data
+    if (payload.body?.data) {
+      return Buffer.from(payload.body.data, 'base64').toString('utf-8');
+    }
+
+    // Multipart — look for text/plain first, then text/html
+    if (payload.parts) {
+      const textPart = payload.parts.find((p: any) => p.mimeType === 'text/plain');
+      if (textPart?.body?.data) {
+        return Buffer.from(textPart.body.data, 'base64').toString('utf-8');
+      }
+      const htmlPart = payload.parts.find((p: any) => p.mimeType === 'text/html');
+      if (htmlPart?.body?.data) {
+        // Strip HTML tags for plain text
+        return Buffer.from(htmlPart.body.data, 'base64')
+          .toString('utf-8')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+      // Nested multipart
+      for (const part of payload.parts) {
+        const nested = this.extractBody(part);
+        if (nested) return nested;
+      }
+    }
+
+    return '';
   }
 }
