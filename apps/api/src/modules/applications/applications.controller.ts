@@ -11,15 +11,11 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 import { ApplicationsService } from './applications.service';
-import { AuthenticatedController } from '../../auth/authenticated.controller';
 import { ClerkAuthGuard } from '../../auth/clerk.guard';
-import { Public } from '../../auth/public.decorator';
 
 @Controller('applications')
-export class ApplicationsController extends AuthenticatedController {
-  constructor(private readonly applicationsService: ApplicationsService) {
-    super();
-  }
+export class ApplicationsController {
+  constructor(private readonly applicationsService: ApplicationsService) {}
 
   @Get()
   @UseGuards(ClerkAuthGuard)
@@ -33,7 +29,7 @@ export class ApplicationsController extends AuthenticatedController {
     return this.applicationsService.getDashboardApplications(req.userId);
   }
 
-  // Auth guard required — we need req.userId to encode into OAuth state
+  // Requires auth so we can encode req.userId into the OAuth state param
   @Get('gmail/auth')
   @UseGuards(ClerkAuthGuard)
   getGmailAuthUrl(@Req() req: any) {
@@ -46,10 +42,9 @@ export class ApplicationsController extends AuthenticatedController {
     return { connected: this.applicationsService.isGmailConnected(req.userId) };
   }
 
-  // Public — Google's redirect carries no Authorization header.
+  // No auth guard — Google's redirect carries no Authorization header.
   // The user is identified by decoding the state param we encoded in getGmailAuthUrl.
   @Get('gmail/callback')
-  @Public()
   async handleCallback(
     @Query('code') code: string,
     @Query('state') state: string,
