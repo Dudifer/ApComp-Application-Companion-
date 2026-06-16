@@ -105,7 +105,7 @@ export function useResumeBuilder(initialJob?: Job | null) {
         setError('Could not load profile.');
         setLoading(false);
       });
-  }, [api]);
+  }, []);
 
   const tailorForJob = useCallback((job: Job) => {
     if (!baseState) return;

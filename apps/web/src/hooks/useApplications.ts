@@ -43,7 +43,7 @@ export function useApplications() {
       .then(r => r.json())
       .then(data => { setApplications(data); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [api]);
+  }, []);
 
   const connectGmail = async () => {
     const res = await api.get('/applications/gmail/auth');

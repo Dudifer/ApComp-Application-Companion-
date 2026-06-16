@@ -14,8 +14,7 @@ export function useJobs() {
         if (Array.isArray(data)) setJobs(data);
       })
       .catch(() => {});
-  }, [api]);
-  // }, []);
+  }, []);
   
   return { jobs, loading };
 }

@@ -106,14 +106,6 @@ export class ApplicationsService {
     this.logger.log('Starting Gmail scrape...');
     this.lastScrapeTime = new Date();
 
-    // Get already-processed email IDs
-    const processed = await this.prisma.processedEmail.findMany({
-      where: { userId },
-      select: { id: true },
-    });
-    const processedIds = new Set(processed.map(p => p.id));
-    this.logger.log(`${processedIds.size} emails already processed, skipping those`);
-
     // Always fetch last 12 months — no date cutoff so we never miss emails
     const scraped = await this.gmail.scrapeApplicationEmails(
       this.gmailTokens,
@@ -127,12 +119,6 @@ export class ApplicationsService {
     let skipped = 0;
 
     for (const email of scraped) {
-      // Skip already-processed emails (dismissed, already saved, etc.)
-      if (email.id && processedIds.has(email.id)) {
-        skipped++;
-        continue;
-      }
-
       const existing = await this.prisma.application.findFirst({
         where: {
           userId,
@@ -178,14 +164,12 @@ export class ApplicationsService {
         created++;
       }
 
-      // Mark this email as processed so it's never re-processed
       if (email.id) {
         await this.prisma.processedEmail.upsert({
           where: { id: email.id },
           update: {},
           create: { id: email.id, userId },
         });
-        processedIds.add(email.id);
       }
     }
 

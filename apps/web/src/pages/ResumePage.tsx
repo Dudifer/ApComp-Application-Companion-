@@ -229,7 +229,7 @@ export default function ResumePage() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await api.post('/resume/upload', { body: formData });
+      const res = await api.upload('/resume/upload', formData);
       if (!res.ok) throw new Error(await res.text());
       const data: CvProfile = await res.json();
       setProfile(data);

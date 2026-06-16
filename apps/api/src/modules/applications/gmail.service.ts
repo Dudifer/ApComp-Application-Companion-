@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { google } from 'googleapis';
 import { detectStatus, extractCompany, extractPosition } from './email-parser';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
@@ -8,9 +10,9 @@ const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 export const JOB_EMAIL_FILTERS = [
   'application',
   'applied',
+  'applying',
   'your cv',
   'your cover letter',
-  'applying',
   'position',
   'role',
   'opportunity',
@@ -35,6 +37,25 @@ export const JOB_EMAIL_FILTERS = [
   'move forward',
   'review your',
 ];
+
+const excludeSubjects = [
+  'jobs you might like',
+  'new jobs for you',
+  'recommended jobs',
+  'job alert',
+  'you should apply to',
+  'apply now',
+  'jobs in',
+].map(s => `-subject:"${s}"`).join(' ');
+
+const excludeSenders = [
+  'lensa',
+  'glassdoor',
+  'jobleads',
+  'indeed',
+  'ziprecruiter',
+  'linkedin',
+].map(s => `-from:${s}`).join(' ');
 
 export interface GmailTokens {
   access_token?: string | null;
@@ -91,8 +112,9 @@ export class GmailService {
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
     const afterDate = sixMonthsAgo.toISOString().slice(0, 10).replace(/-/g, '/'); // YYYY/MM/DD
+
     const filterQuery = filters.map(k => `"${k}"`).join(' OR ');
-    const query = `after:${afterDate} (${filterQuery})`;
+    const query = `after:${afterDate} (${filterQuery}) ${excludeSenders} ${excludeSubjects}`;
 
     this.logger.log(`Gmail query: ${query}`);
 
@@ -100,7 +122,7 @@ export class GmailService {
     const listRes = await gmail.users.messages.list({
       userId: 'me',
       q: query,
-      maxResults: 200,
+      maxResults: 300,
     });
 
     const messages = listRes.data.messages ?? [];
@@ -155,6 +177,12 @@ export class GmailService {
       const body = this.extractBody(msg.data.payload);
 
       const { status, keyword } = detectStatus(subject, body); // ← pass body
+      const logLine = `[${status}] keyword="${keyword ?? 'none'}" subject="${subject}"\n`;
+      fs.appendFileSync(
+        path.join(process.cwd(), 'email-parse-log.txt'),
+        logLine,
+        'utf-8',
+      );
       if (status === 'UNKNOWN') return null;
 
       const emailDate = dateStr ? new Date(dateStr) : new Date();
