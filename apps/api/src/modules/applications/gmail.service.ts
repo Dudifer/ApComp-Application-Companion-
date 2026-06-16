@@ -64,11 +64,13 @@ export class GmailService {
     );
   }
 
-  getAuthUrl(): string {
+  getAuthUrl(state: string): string {
     const oauth2Client = this.createOAuthClient();
     return oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
+      state,
+      prompt: 'consent', // always get a refresh_token
     });
   }
 
@@ -85,11 +87,12 @@ export class GmailService {
     google.options({ auth: oauth2Client });
     const gmail = google.gmail('v1');
 
-    // Build query — last 12 months, job-related keywords
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    // Build query — last 6 months, job-related keywords
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const afterDate = sixMonthsAgo.toISOString().slice(0, 10).replace(/-/g, '/'); // YYYY/MM/DD
     const filterQuery = filters.map(k => `"${k}"`).join(' OR ');
-    const query = `(${filterQuery})`;
+    const query = `after:${afterDate} (${filterQuery})`;
 
     this.logger.log(`Gmail query: ${query}`);
 

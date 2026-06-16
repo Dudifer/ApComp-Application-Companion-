@@ -564,6 +564,7 @@ export default function App() {
                   </div>
                 ) : (
                   [...applications]
+                    .filter(a => a.status !== 'DISMISSED' && a.status !== 'REJECTED' && a.status !== 'WITHDRAWN')
                     .sort((a, b) => {
                       const statusDiff = (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9);
                       if (statusDiff !== 0) return statusDiff;
