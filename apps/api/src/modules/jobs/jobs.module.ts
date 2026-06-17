@@ -7,8 +7,10 @@ import { AiFilterService } from './ai-filter.service';
 import { CompanyEnrichmentService } from './company-enrichment.service';
 import { ContactFinderService } from './contact-finder.service';
 import { JobCacheService } from './job-cache.service';
+import { AuthModule } from '../../auth/auth.module';
 
 @Module({
+  imports: [AuthModule],
   controllers: [JobsController],
   providers: [
     JobsService,

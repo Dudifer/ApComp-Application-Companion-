@@ -4,6 +4,7 @@ import { PdfParser } from './parsers/pdf.parser';
 import { DocxParser } from './parsers/docx.parser';
 import { AiExtractorService } from './ai-extractor.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserService } from '../../auth/user.service';
 
 // const DEV_USER_ID = 'dev-user';
 
@@ -16,6 +17,7 @@ export class ResumeService {
     private readonly docxParser: DocxParser,
     private readonly aiExtractor: AiExtractorService,
     private readonly prisma: PrismaService,
+    private readonly userService: UserService,
   ) {}
 
   // private async ensureDevUser() {
@@ -31,6 +33,8 @@ export class ResumeService {
   // }
 
   async processUpload(userId: string, file: Express.Multer.File): Promise<CvProfile> {
+    userId = await this.userService.ensureUser(userId);
+
     const mime = file.mimetype;
     let rawText: string;
 
@@ -61,6 +65,7 @@ export class ResumeService {
   }
 
   async submitGapAnswers(userId: string, answers: GapAnswerPayload[]): Promise<CvProfile> {
+    userId = await this.userService.ensureUser(userId);
     const profile = await this.getProfile(userId);
     if (!profile) {
       throw new BadRequestException('No profile found. Please upload your CV first.');
@@ -72,6 +77,7 @@ export class ResumeService {
   }
 
   async getProfile(userId: string): Promise<CvProfile | null> {
+    userId = await this.userService.ensureUser(userId);
     const row = await this.prisma.cvProfile.findUnique({
       where: { userId },
     });
@@ -107,6 +113,7 @@ export class ResumeService {
       gapQuestions: profile.gapQuestions,
       isComplete: profile.isComplete,
     };
+    userId = await this.userService.ensureUser(userId);
     await this.prisma.cvProfile.upsert({
       where: { userId },
       update: data,
@@ -115,6 +122,7 @@ export class ResumeService {
   }
 
   async deleteProfile(userId: string) {
+    userId = await this.userService.ensureUser(userId);
     await this.prisma.cvProfile.deleteMany({ where: { userId } });
   }
 }

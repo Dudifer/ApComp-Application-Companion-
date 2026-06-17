@@ -43,12 +43,16 @@ const excludeSubjects = [
   'new jobs for you',
   'recommended jobs',
   'job alert',
+  'job alerts',
+  'job matches',
   'you should apply to',
   'apply now',
   'jobs in',
+  'new job opportunities',
 ].map(s => `-subject:"${s}"`).join(' ');
 
 const excludeSenders = [
+  'adzuna',
   'lensa',
   'glassdoor',
   'jobleads',

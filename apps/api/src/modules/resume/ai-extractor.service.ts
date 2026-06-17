@@ -115,7 +115,7 @@ ${rawText}`;
     profile: CvProfile,
     answers: { questionId: string; answer: string }[],
   ): Promise<CvProfile> {
-    const answeredQuestions = profile.gapQuestions.map(q => {
+    const answeredQuestions = (profile.gapQuestions ?? []).map(q => {
       const ans = answers.find(a => a.questionId === q.id);
       return ans ? { ...q, answer: ans.answer } : q;
     });
@@ -148,7 +148,7 @@ Return ONLY updated JSON with two keys:
     try {
       const message = await client.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1600,
+        max_tokens: 16000,
         messages: [{ role: 'user', content: prompt }],
       });
 

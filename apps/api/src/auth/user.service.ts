@@ -17,6 +17,14 @@ export class UserService {
     });
 
     if (existing) return existing.id;
+    else {
+      const exists = await this.prisma.user.findUnique({
+        where: { id: clerkId },
+        select: { id: true },
+      });
+
+      if (exists) return exists.id;
+    }
 
     // First time — fetch user info from Clerk and create in DB
     const clerkUser = await clerkClient.users.getUser(clerkId);

@@ -8,6 +8,7 @@ import { CompanyEnrichmentService } from './company-enrichment.service';
 import { JobCacheService } from './job-cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CvProfile } from '@apcomp/types';
+import { UserService } from '../../auth/user.service';
 
 // const DEV_USER_ID = 'dev-user';
 
@@ -25,6 +26,7 @@ export class JobsService {
     private readonly enrichment: CompanyEnrichmentService,
     private readonly jobCache: JobCacheService,
     private readonly prisma: PrismaService,
+    private readonly userService: UserService,
   ) {}
 
   // private async ensureDevUser() {
@@ -40,6 +42,7 @@ export class JobsService {
   // }
 
   private async getCvProfile(userId: string): Promise<CvProfile | null> {
+    userId = await this.userService.ensureUser(userId);
     try {
       const row = await this.prisma.cvProfile.findUnique({
         where: { userId },
@@ -85,6 +88,7 @@ export class JobsService {
   }
 
   async getRecommendedJobs(userId: string): Promise<Job[]> {
+    userId = await this.userService.ensureUser(userId);
     const saved = await this.prisma.savedJob.findMany({
       where: { userId, expiresAt: { gt: new Date() } },
     });
@@ -113,6 +117,7 @@ export class JobsService {
     remote?: boolean;
   }): Promise<Job[]> {
     // await this.ensureDevUser();
+    userId = await this.userService.ensureUser(userId);
 
     const skillsPart = params.skills ? ` ${params.skills.split(',')[0].trim()}` : '';
     const query = `${params.title}${skillsPart}`;
@@ -156,6 +161,7 @@ export class JobsService {
    * and saves it as a SavedJob so it shows up in /jobs/recommended.
    */
   async captureJob(userId: string, input: CapturedJobInput): Promise<Job> {
+    userId = await this.userService.ensureUser(userId);
     if (!input?.title?.trim() || !input?.company?.trim() || !input?.url?.trim()) {
       throw new BadRequestException('title, company, and url are required');
     }
@@ -245,6 +251,7 @@ export class JobsService {
   }
 
   private async fetchAndProcess(userId: string): Promise<Job[]> {
+    userId = await this.userService.ensureUser(userId);
     const profile = await this.getCvProfile(userId);
     const weights = await this.getWeights(userId);
     const queries = this.buildSearchQueries(profile);
@@ -280,7 +287,8 @@ export class JobsService {
   }
 
   private async saveJobsToDB(userId: string, userjobs: Job[]): Promise<void> {
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    userId = await this.userService.ensureUser(userId);
+    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
     await this.prisma.$transaction(
       userjobs.map((job) =>
         this.prisma.savedJob.upsert({
@@ -307,6 +315,7 @@ export class JobsService {
 
   async dismissJob(userId: string, jobId: string, source: string, company: string, title: string, reason?: string) {
     // await this.ensureDevUser();
+    userId = await this.userService.ensureUser(userId);
 
     await this.prisma.dismissedJob.create({
       data: { userId, jobId, source, company, title, reason },
@@ -322,6 +331,7 @@ export class JobsService {
 
   async getWeights(userId: string): Promise<JobFeedWeights> {
     // await this.ensureDevUser();
+    userId = await this.userService.ensureUser(userId);
     const weights = await this.prisma.jobFeedWeights.findUnique({
       where: { userId },
     });
@@ -329,16 +339,19 @@ export class JobsService {
   }
 
   async refreshJobs(userId: string): Promise<Job[]> {
+    userId = await this.userService.ensureUser(userId);
     await this.prisma.savedJob.deleteMany({ where: { userId } });
     this.jobCache.clearCache(userId);
     return this.fetchAndProcess(userId);
   }
 
-  getCacheInfo(userId: string) {
+  async getCacheInfo(userId: string) {
+    userId = await this.userService.ensureUser(userId);
     return this.jobCache.getCacheInfo(userId);
   }
 
   private async getDismissals(userId: string): Promise<DismissedJob[]> {
+    userId = await this.userService.ensureUser(userId);
     const rows = await this.prisma.dismissedJob.findMany({
       where: { userId },
       orderBy: { dismissedAt: 'desc' },
@@ -355,6 +368,7 @@ export class JobsService {
   }
 
   private async recalculateWeights(userId: string) {
+    userId = await this.userService.ensureUser(userId);
     const recent = await this.prisma.dismissedJob.findMany({
       where: { userId },
       orderBy: { dismissedAt: 'desc' },

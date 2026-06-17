@@ -88,12 +88,14 @@ export class ApplicationsService {
   }
 
   async getDashboardApplications(userId: string): Promise<ApplicationDto[]> {
+    userId = await this.resolveUserId(userId);
     const all = await this.getApplications(userId);
     // Dashboard shows only active (non-rejected, non-withdrawn) applications
     return all.filter(a => !['REJECTED', 'WITHDRAWN'].includes(a.status));
   }
 
   private async shouldScrape(userId: string): Promise<boolean> {
+    userId = await this.resolveUserId(userId);
     const lastScrapedAt = await this.getLastScrapedAt(userId);
     if (!lastScrapedAt) return true;
     const hoursSince = (Date.now() - lastScrapedAt.getTime()) / (1000 * 60 * 60);
@@ -101,6 +103,7 @@ export class ApplicationsService {
   }
 
   async scrapeEmails(userId: string): Promise<void> {
+    userId = await this.resolveUserId(userId);
     if (!this.gmailTokens) return;
 
     this.logger.log('Starting Gmail scrape...');
