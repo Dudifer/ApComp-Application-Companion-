@@ -42,6 +42,7 @@ email-parse-log.txt
 .env.test.local
 .env.production.local
 .env.production
+env.production
 .env.local
 .env*.local
 

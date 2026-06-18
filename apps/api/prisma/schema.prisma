@@ -48,6 +48,7 @@ model CvProfile {
 
   // Store structured data as JSON
   roles        Json    @default("[]")
+  projects     Json    @default("[]")
   skills       Json    @default("[]")
   practices    Json    @default("[]")
   education    Json    @default("[]")

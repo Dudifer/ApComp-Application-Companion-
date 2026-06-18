@@ -109,6 +109,7 @@ export class ResumeService {
       roles: profile.roles,
       skills: profile.skills,
       practices: profile.practices,
+      projects: profile.projects ?? [],
       education: profile.education ?? [],
       gapQuestions: profile.gapQuestions,
       isComplete: profile.isComplete,
@@ -119,6 +120,12 @@ export class ResumeService {
       update: data,
       create: { userId, ...data },
     });
+    if (data.name) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { name: data.name }
+      });
+    }
   }
 
   async deleteProfile(userId: string) {
