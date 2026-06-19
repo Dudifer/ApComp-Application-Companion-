@@ -3,8 +3,7 @@ import type { CvProfile, Role, SkillEntry } from '@apcomp/types';
 import type { Job } from '@apcomp/types';
 import { tailorResumeForJob, type TailoringResult } from './resumeTailor';
 import { buildInitialState } from './resumeUtils';
-
-const API = 'http://localhost:3000';
+import { useApi } from '../lib/api';
 
 export interface EditableBullet {
   id: string;
@@ -77,9 +76,10 @@ export function useResumeBuilder(initialJob?: Job | null) {
   const [error, setError] = useState<string | null>(null);
   const [tailoringResult, setTailoringResult] = useState<TailoringResult | null>(null);
   const [activeJob, setActiveJob] = useState<Job | null>(initialJob ?? null);
+  const api = useApi();
 
   useEffect(() => {
-    fetch(`${API}/resume/profile`)
+    api.get('/resume/profile')
       .then(r => r.json())
       .then((p: CvProfile) => {
         console.log('Profile fetch result:', p);

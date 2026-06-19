@@ -8,8 +8,9 @@ import { CompanyEnrichmentService } from './company-enrichment.service';
 import { JobCacheService } from './job-cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CvProfile } from '@apcomp/types';
+import { UserService } from '../../auth/user.service';
 
-const DEV_USER_ID = 'dev-user';
+// const DEV_USER_ID = 'dev-user';
 
 // Fallback queries if no CV profile exists yet
 const FALLBACK_QUERIES = ['software engineer', 'software developer', 'full stack developer'];
@@ -25,24 +26,26 @@ export class JobsService {
     private readonly enrichment: CompanyEnrichmentService,
     private readonly jobCache: JobCacheService,
     private readonly prisma: PrismaService,
+    private readonly userService: UserService,
   ) {}
 
-  private async ensureDevUser() {
-    return this.prisma.user.upsert({
-      where: { id: DEV_USER_ID },
-      update: {},
-      create: {
-        id: DEV_USER_ID,
-        email: process.env.DEV_USER_EMAIL ?? 'dev@apcomp.local',
-        name: 'Dev User',
-      },
-    });
-  }
+  // private async ensureDevUser() {
+  //   return this.prisma.user.upsert({
+  //     where: { id: DEV_USER_ID },
+  //     update: {},
+  //     create: {
+  //       id: DEV_USER_ID,
+  //       email: process.env.DEV_USER_EMAIL ?? 'dev@apcomp.local',
+  //       name: 'Dev User',
+  //     },
+  //   });
+  // }
 
-  private async getCvProfile(): Promise<CvProfile | null> {
+  private async getCvProfile(userId: string): Promise<CvProfile | null> {
+    userId = await this.userService.ensureUser(userId);
     try {
       const row = await this.prisma.cvProfile.findUnique({
-        where: { userId: DEV_USER_ID },
+        where: { userId },
       });
       if (!row) return null;
       return {
@@ -84,11 +87,10 @@ export class JobsService {
     return [...new Set(queries)].slice(0, 3);
   }
 
-  async getRecommendedJobs(): Promise<Job[]> {
-    await this.ensureDevUser();
-
+  async getRecommendedJobs(userId: string): Promise<Job[]> {
+    userId = await this.userService.ensureUser(userId);
     const saved = await this.prisma.savedJob.findMany({
-      where: { userId: DEV_USER_ID, expiresAt: { gt: new Date() } },
+      where: { userId, expiresAt: { gt: new Date() } },
     });
 
     if (saved.length > 0) {
@@ -96,25 +98,26 @@ export class JobsService {
       return saved.map(s => s.jobData as unknown as Job);
     }
 
-    const diskCached = this.jobCache.loadRawJobs();
+    const diskCached = this.jobCache.loadRawJobs(userId);
     if (diskCached) {
       this.logger.log(`Returning ${diskCached.length} jobs from disk cache`);
-      await this.saveJobsToDB(diskCached).catch(err =>
+      await this.saveJobsToDB(userId, diskCached).catch(err =>
         this.logger.warn('Could not save disk cache to DB:', err)
       );
       return diskCached;
     }
 
-    return this.fetchAndProcess();
+    return this.fetchAndProcess(userId);
   }
 
-  async searchJobs(params: {
+  async searchJobs(userId: string, params: {
     title: string;
     skills?: string;
     location?: string;
     remote?: boolean;
   }): Promise<Job[]> {
-    await this.ensureDevUser();
+    // await this.ensureDevUser();
+    userId = await this.userService.ensureUser(userId);
 
     const skillsPart = params.skills ? ` ${params.skills.split(',')[0].trim()}` : '';
     const query = `${params.title}${skillsPart}`;
@@ -122,8 +125,8 @@ export class JobsService {
 
     this.logger.log(`Searching: "${query}"${locationSuffix}`);
 
-    const profile = await this.getCvProfile();
-    const weights = await this.getWeights();
+    const profile = await this.getCvProfile(userId);
+    const weights = await this.getWeights(userId);
     const adzunaCount = Math.round(20 * weights.adzuna * 2);
     const jsearchCount = Math.round(2 * weights.jsearch * 2);
 
@@ -135,20 +138,20 @@ export class JobsService {
     this.logger.log(`Fetched ${adzunaJobs.length} Adzuna + ${jsearchJobs.length} JSearch`);
 
     const combined = this.deduplicate([...adzunaJobs, ...jsearchJobs]);
-    this.jobCache.saveRawJobs(combined);
+    this.jobCache.saveRawJobs(userId, combined);
 
     const enriched = await this.enrichment.enrichJobs(combined);
-    this.jobCache.saveRawJobs(enriched);
+    this.jobCache.saveRawJobs(userId, enriched);
 
-    const dismissals = await this.getDismissals();
+    const dismissals = await this.getDismissals(userId);
     const filtered = await this.aiFilter.scoreAndFilter(enriched, dismissals, profile);
 
     this.logger.log(`${filtered.length} jobs after filtering`);
 
-    this.jobCache.saveRawJobs(filtered);
+    this.jobCache.saveRawJobs(userId, filtered);
 
-    await this.saveJobsToDB(filtered);
-    this.jobCache.clearCache();
+    await this.saveJobsToDB(userId, filtered);
+    this.jobCache.clearCache(userId);
 
     return filtered;
   }
@@ -157,12 +160,11 @@ export class JobsService {
    * Capture a job from the Chrome extension. Normalizes the payload into a Job
    * and saves it as a SavedJob so it shows up in /jobs/recommended.
    */
-  async captureJob(input: CapturedJobInput): Promise<Job> {
+  async captureJob(userId: string, input: CapturedJobInput): Promise<Job> {
+    userId = await this.userService.ensureUser(userId);
     if (!input?.title?.trim() || !input?.company?.trim() || !input?.url?.trim()) {
       throw new BadRequestException('title, company, and url are required');
     }
-
-    await this.ensureDevUser();
 
     // Stable id from the URL so re-capturing the same page is idempotent.
     const externalId = createHash('sha1').update(input.url).digest('hex').slice(0, 16);
@@ -229,14 +231,14 @@ export class JobsService {
     await this.prisma.savedJob.upsert({
       where: {
         userId_externalId_source: {
-          userId: DEV_USER_ID,
+          userId,
           externalId,
           source: 'manual',
         },
       },
       update: { jobData: job as any, fetchedAt: now, expiresAt },
       create: {
-        userId: DEV_USER_ID,
+        userId,
         externalId,
         source: 'manual',
         jobData: job as any,
@@ -248,9 +250,10 @@ export class JobsService {
     return job;
   }
 
-  private async fetchAndProcess(): Promise<Job[]> {
-    const profile = await this.getCvProfile();
-    const weights = await this.getWeights();
+  private async fetchAndProcess(userId: string): Promise<Job[]> {
+    userId = await this.userService.ensureUser(userId);
+    const profile = await this.getCvProfile(userId);
+    const weights = await this.getWeights(userId);
     const queries = this.buildSearchQueries(profile);
 
     this.logger.log(`Using search queries: ${queries.join(', ')}`);
@@ -266,85 +269,91 @@ export class JobsService {
     this.logger.log(`Fetched ${adzunaJobs.length} Adzuna + ${jsearchJobs.length} JSearch jobs`);
 
     const combined = this.deduplicate([...adzunaJobs, ...jsearchJobs]);
-    this.jobCache.saveRawJobs(combined);
+    this.jobCache.saveRawJobs(userId, combined);
 
     const enriched = await this.enrichment.enrichJobs(combined);
-    this.jobCache.saveRawJobs(enriched);
+    this.jobCache.saveRawJobs(userId, enriched);
 
-    const dismissals = await this.getDismissals();
+    const dismissals = await this.getDismissals(userId);
 
     const filtered = await this.aiFilter.scoreAndFilter(enriched, dismissals, profile);
     this.logger.log(`${filtered.length} jobs after AI filtering`);
 
-    this.jobCache.saveRawJobs(filtered);
-    await this.saveJobsToDB(filtered);
-    this.jobCache.clearCache();
+    this.jobCache.saveRawJobs(userId, filtered);
+    await this.saveJobsToDB(userId, filtered);
+    this.jobCache.clearCache(userId);
 
     return filtered;
   }
 
-  private async saveJobsToDB(jobs: Job[]): Promise<void> {
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  private async saveJobsToDB(userId: string, userjobs: Job[]): Promise<void> {
+    userId = await this.userService.ensureUser(userId);
+    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
     await this.prisma.$transaction(
-      jobs.map(job =>
+      userjobs.map((job) =>
         this.prisma.savedJob.upsert({
           where: {
             userId_externalId_source: {
-              userId: DEV_USER_ID,
+              userId,
               externalId: job.externalId,
               source: job.source,
             },
           },
           update: { jobData: job as any, expiresAt, fetchedAt: new Date() },
           create: {
-            userId: DEV_USER_ID,
+            userId,
             externalId: job.externalId,
             source: job.source,
             jobData: job as any,
             expiresAt,
           },
-        })
-      )
+        }),
+      ),
     );
-    this.logger.log(`Saved ${jobs.length} jobs to DB`);
+    this.logger.log(`Saved ${userjobs.length} jobs to DB`);
   }
 
-  async dismissJob(jobId: string, source: string, company: string, title: string, reason?: string) {
-    await this.ensureDevUser();
+  async dismissJob(userId: string, jobId: string, source: string, company: string, title: string, reason?: string) {
+    // await this.ensureDevUser();
+    userId = await this.userService.ensureUser(userId);
 
     await this.prisma.dismissedJob.create({
-      data: { userId: DEV_USER_ID, jobId, source, company, title, reason },
+      data: { userId, jobId, source, company, title, reason },
     });
 
     await this.prisma.savedJob.deleteMany({
-      where: { userId: DEV_USER_ID, externalId: jobId, source },
+      where: { userId, externalId: jobId, source },
     });
 
-    await this.recalculateWeights();
-    return { success: true, weights: await this.getWeights() };
+    await this.recalculateWeights(userId);
+    return { success: true, weights: await this.getWeights(userId) };
   }
 
-  async getWeights(): Promise<JobFeedWeights> {
-    await this.ensureDevUser();
+  async getWeights(userId: string): Promise<JobFeedWeights> {
+    // await this.ensureDevUser();
+    userId = await this.userService.ensureUser(userId);
     const weights = await this.prisma.jobFeedWeights.findUnique({
-      where: { userId: DEV_USER_ID },
+      where: { userId },
     });
     return weights ?? { adzuna: 0.5, jsearch: 0.5 };
   }
 
-  async refreshJobs(): Promise<Job[]> {
-    await this.prisma.savedJob.deleteMany({ where: { userId: DEV_USER_ID } });
-    this.jobCache.clearCache();
-    return this.fetchAndProcess();
+  async refreshJobs(userId: string): Promise<Job[]> {
+    userId = await this.userService.ensureUser(userId);
+    await this.prisma.savedJob.deleteMany({ where: { userId } });
+    this.jobCache.clearCache(userId);
+    return this.fetchAndProcess(userId);
   }
 
-  getCacheInfo() {
-    return this.jobCache.getCacheInfo();
+  async getCacheInfo(userId: string) {
+    userId = await this.userService.ensureUser(userId);
+    return this.jobCache.getCacheInfo(userId);
   }
 
-  private async getDismissals(): Promise<DismissedJob[]> {
+  private async getDismissals(userId: string): Promise<DismissedJob[]> {
+    userId = await this.userService.ensureUser(userId);
     const rows = await this.prisma.dismissedJob.findMany({
-      where: { userId: DEV_USER_ID },
+      where: { userId },
       orderBy: { dismissedAt: 'desc' },
       take: 50,
     });
@@ -358,9 +367,10 @@ export class JobsService {
     }));
   }
 
-  private async recalculateWeights() {
+  private async recalculateWeights(userId: string) {
+    userId = await this.userService.ensureUser(userId);
     const recent = await this.prisma.dismissedJob.findMany({
-      where: { userId: DEV_USER_ID },
+      where: { userId },
       orderBy: { dismissedAt: 'desc' },
       take: 20,
     });
@@ -375,13 +385,13 @@ export class JobsService {
     const sum = adzunaScore + jsearchScore;
 
     await this.prisma.jobFeedWeights.upsert({
-      where: { userId: DEV_USER_ID },
+      where: { userId },
       update: {
         adzuna: parseFloat((adzunaScore / sum).toFixed(2)),
         jsearch: parseFloat((jsearchScore / sum).toFixed(2)),
       },
       create: {
-        userId: DEV_USER_ID,
+        userId,
         adzuna: parseFloat((adzunaScore / sum).toFixed(2)),
         jsearch: parseFloat((jsearchScore / sum).toFixed(2)),
       },

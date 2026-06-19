@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { google } from 'googleapis';
 import { detectStatus, extractCompany, extractPosition } from './email-parser';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 
@@ -8,9 +10,9 @@ const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 export const JOB_EMAIL_FILTERS = [
   'application',
   'applied',
+  'applying',
   'your cv',
   'your cover letter',
-  'applying',
   'position',
   'role',
   'opportunity',
@@ -35,6 +37,29 @@ export const JOB_EMAIL_FILTERS = [
   'move forward',
   'review your',
 ];
+
+const excludeSubjects = [
+  'jobs you might like',
+  'new jobs for you',
+  'recommended jobs',
+  'job alert',
+  'job alerts',
+  'job matches',
+  'you should apply to',
+  'apply now',
+  'jobs in',
+  'new job opportunities',
+].map(s => `-subject:"${s}"`).join(' ');
+
+const excludeSenders = [
+  'adzuna',
+  'lensa',
+  'glassdoor',
+  'jobleads',
+  'indeed',
+  'ziprecruiter',
+  'linkedin',
+].map(s => `-from:${s}`).join(' ');
 
 export interface GmailTokens {
   access_token?: string | null;
@@ -64,12 +89,13 @@ export class GmailService {
     );
   }
 
-  getAuthUrl(): string {
+  getAuthUrl(state: string): string {
     const oauth2Client = this.createOAuthClient();
     return oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: SCOPES,
-      prompt: 'consent',
+      state,
+      prompt: 'consent', // always get a refresh_token
     });
   }
 
@@ -83,13 +109,16 @@ export class GmailService {
     const oauth2Client = this.createOAuthClient();
     oauth2Client.setCredentials(tokens);
 
-    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    google.options({ auth: oauth2Client });
+    const gmail = google.gmail('v1');
 
-    // Build query — last 12 months, job-related keywords
-    const oneYearAgo = new Date();
-    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    // Build query — last 6 months, job-related keywords
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const afterDate = sixMonthsAgo.toISOString().slice(0, 10).replace(/-/g, '/'); // YYYY/MM/DD
+
     const filterQuery = filters.map(k => `"${k}"`).join(' OR ');
-    const query = `(${filterQuery})`;
+    const query = `after:${afterDate} (${filterQuery}) ${excludeSenders} ${excludeSubjects}`;
 
     this.logger.log(`Gmail query: ${query}`);
 
@@ -97,7 +126,7 @@ export class GmailService {
     const listRes = await gmail.users.messages.list({
       userId: 'me',
       q: query,
-      maxResults: 200,
+      maxResults: 300,
     });
 
     const messages = listRes.data.messages ?? [];
@@ -135,7 +164,7 @@ export class GmailService {
       const msg = await gmail.users.messages.get({
         userId: 'me',
         id: messageId,
-        format: 'metadata',
+        format: 'full',  // ← change from 'metadata' to 'full' to get body
         metadataHeaders: ['From', 'Subject', 'Date'],
       });
 
@@ -149,7 +178,15 @@ export class GmailService {
 
       if (!subject) return null;
 
-      const { status, keyword } = detectStatus(subject, '');
+      const body = this.extractBody(msg.data.payload);
+
+      const { status, keyword } = detectStatus(subject, body); // ← pass body
+      const logLine = `[${status}] keyword="${keyword ?? 'none'}" subject="${subject}"\n`;
+      fs.appendFileSync(
+        path.join(process.cwd(), 'email-parse-log.txt'),
+        logLine,
+        'utf-8',
+      );
       if (status === 'UNKNOWN') return null;
 
       const emailDate = dateStr ? new Date(dateStr) : new Date();
@@ -169,5 +206,38 @@ export class GmailService {
       this.logger.warn(`Failed to parse message ${messageId}:`, err);
       return null;
     }
+  }
+
+  private extractBody(payload: any): string {
+    if (!payload) return '';
+
+    // Direct body data
+    if (payload.body?.data) {
+      return Buffer.from(payload.body.data, 'base64').toString('utf-8');
+    }
+
+    // Multipart — look for text/plain first, then text/html
+    if (payload.parts) {
+      const textPart = payload.parts.find((p: any) => p.mimeType === 'text/plain');
+      if (textPart?.body?.data) {
+        return Buffer.from(textPart.body.data, 'base64').toString('utf-8');
+      }
+      const htmlPart = payload.parts.find((p: any) => p.mimeType === 'text/html');
+      if (htmlPart?.body?.data) {
+        // Strip HTML tags for plain text
+        return Buffer.from(htmlPart.body.data, 'base64')
+          .toString('utf-8')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+      // Nested multipart
+      for (const part of payload.parts) {
+        const nested = this.extractBody(part);
+        if (nested) return nested;
+      }
+    }
+
+    return '';
   }
 }

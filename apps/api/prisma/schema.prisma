@@ -10,6 +10,7 @@ datasource db {
 
 model User {
   id        String   @id @default(cuid())
+  clerkId   String   @unique
   email     String   @unique
   name      String?
   createdAt DateTime @default(now())
@@ -47,6 +48,7 @@ model CvProfile {
 
   // Store structured data as JSON
   roles        Json    @default("[]")
+  projects     Json    @default("[]")
   skills       Json    @default("[]")
   practices    Json    @default("[]")
   education    Json    @default("[]")

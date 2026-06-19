@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+
 .pnpm/
 
 # Build outputs
@@ -14,6 +15,11 @@ build/
 .env
 .env.local
 .env*.local
+.env.production
+env.production
+env.local
+env.*.local
+*.env.production
 
 # Generated
 apps/api/generated/

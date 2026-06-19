@@ -4,13 +4,14 @@ import { join } from 'path';
 import { Job } from '@apcomp/types';
 
 const CACHE_DIR = join(process.cwd(), '.job-cache');
-const CACHE_FILE = join(CACHE_DIR, 'raw-jobs.json');
+// const CACHE_FILE = join(CACHE_DIR, 'raw-jobs.json');
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface JobCacheFile {
   savedAt: string;
   jobs: Job[];
 }
+
 
 @Injectable()
 export class JobCacheService {
@@ -23,17 +24,21 @@ export class JobCacheService {
     }
   }
 
+  private getCachePath(userId: string): string {
+    return join(CACHE_DIR, `raw-jobs-${userId}.json`);
+  }
+
   /**
    * Save raw jobs to disk immediately after fetching.
    * Call this before any processing that could fail.
    */
-  saveRawJobs(jobs: Job[]): void {
+  saveRawJobs(userId: string, jobs: Job[]): void {
     try {
       const data: JobCacheFile = {
         savedAt: new Date().toISOString(),
         jobs,
       };
-      writeFileSync(CACHE_FILE, JSON.stringify(data, null, 2), 'utf-8');
+      writeFileSync(this.getCachePath(userId), JSON.stringify(data, null, 2), 'utf-8');
       this.logger.log(`Saved ${jobs.length} raw jobs to disk cache`);
     } catch (err) {
       this.logger.warn('Could not save job cache to disk:', err);
@@ -44,11 +49,11 @@ export class JobCacheService {
    * Load raw jobs from disk if they exist and aren't too old.
    * Returns null if no valid cache exists.
    */
-  loadRawJobs(): Job[] | null {
+  loadRawJobs(userId: string): Job[] | null {
     try {
-      if (!existsSync(CACHE_FILE)) return null;
+      if (!existsSync(this.getCachePath(userId))) return null;
 
-      const raw = readFileSync(CACHE_FILE, 'utf-8');
+      const raw = readFileSync(this.getCachePath(userId), 'utf-8');
       const data: JobCacheFile = JSON.parse(raw);
 
       const age = Date.now() - new Date(data.savedAt).getTime();
@@ -68,10 +73,10 @@ export class JobCacheService {
   /**
    * Check if a valid disk cache exists without loading it.
    */
-  hasCachedJobs(): boolean {
+  hasCachedJobs(userId: string): boolean {
     try {
-      if (!existsSync(CACHE_FILE)) return false;
-      const raw = readFileSync(CACHE_FILE, 'utf-8');
+      if (!existsSync(this.getCachePath(userId))) return false;
+      const raw = readFileSync(this.getCachePath(userId), 'utf-8');
       const data: JobCacheFile = JSON.parse(raw);
       const age = Date.now() - new Date(data.savedAt).getTime();
       return age <= MAX_AGE_MS;
@@ -83,10 +88,10 @@ export class JobCacheService {
   /**
    * Clear the disk cache.
    */
-  clearCache(): void {
+  clearCache(userId: string): void {
     try {
-      if (existsSync(CACHE_FILE)) {
-        writeFileSync(CACHE_FILE, JSON.stringify({ savedAt: null, jobs: [] }), 'utf-8');
+      if (existsSync(this.getCachePath(userId))) {
+        writeFileSync(this.getCachePath(userId), JSON.stringify({ savedAt: null, jobs: [] }), 'utf-8');
         this.logger.log('Disk cache cleared');
       }
     } catch (err) {
@@ -94,10 +99,10 @@ export class JobCacheService {
     }
   }
 
-  getCacheInfo(): { exists: boolean; savedAt?: string; jobCount?: number; ageHours?: number } {
+  getCacheInfo(userId: string): { exists: boolean; savedAt?: string; jobCount?: number; ageHours?: number } {
     try {
-      if (!existsSync(CACHE_FILE)) return { exists: false };
-      const raw = readFileSync(CACHE_FILE, 'utf-8');
+      if (!existsSync(this.getCachePath(userId))) return { exists: false };
+      const raw = readFileSync(this.getCachePath(userId), 'utf-8');
       const data: JobCacheFile = JSON.parse(raw);
       const ageMs = Date.now() - new Date(data.savedAt).getTime();
       return {

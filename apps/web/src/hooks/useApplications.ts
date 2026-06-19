@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-
-const API = 'http://localhost:3000';
+import { useApi } from '../lib/api';
 
 export interface Application {
   id: string;
@@ -30,23 +29,24 @@ export function useApplications() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [gmailConnected, setGmailConnected] = useState(false);
+  const api = useApi();
 
   useEffect(() => {
     // Check Gmail connection status
-    fetch(`${API}/applications/gmail/status`)
+    api.get('/applications/gmail/status')
       .then(r => r.json())
       .then(data => setGmailConnected(data.connected))
       .catch(() => {});
 
     // Fetch dashboard applications
-    fetch(`${API}/applications/dashboard`)
+    api.get('/applications/dashboard')
       .then(r => r.json())
       .then(data => { setApplications(data); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
 
   const connectGmail = async () => {
-    const res = await fetch(`${API}/applications/gmail/auth`);
+    const res = await api.get('/applications/gmail/auth');
     const { url } = await res.json();
     window.location.href = url;
   };

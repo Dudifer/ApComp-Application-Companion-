@@ -4,8 +4,9 @@ import { PdfParser } from './parsers/pdf.parser';
 import { DocxParser } from './parsers/docx.parser';
 import { AiExtractorService } from './ai-extractor.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { UserService } from '../../auth/user.service';
 
-const DEV_USER_ID = 'dev-user';
+// const DEV_USER_ID = 'dev-user';
 
 @Injectable()
 export class ResumeService {
@@ -16,21 +17,24 @@ export class ResumeService {
     private readonly docxParser: DocxParser,
     private readonly aiExtractor: AiExtractorService,
     private readonly prisma: PrismaService,
+    private readonly userService: UserService,
   ) {}
 
-  private async ensureDevUser() {
-    return this.prisma.user.upsert({
-      where: { id: DEV_USER_ID },
-      update: {},
-      create: {
-        id: DEV_USER_ID,
-        email: 'dev@apcomp.local',
-        name: 'Dev User',
-      },
-    });
-  }
+  // private async ensureDevUser() {
+  //   return this.prisma.user.upsert({
+  //     where: { id: DEV_USER_ID },
+  //     update: {},
+  //     create: {
+  //       id: DEV_USER_ID,
+  //       email: 'dev@apcomp.local',
+  //       name: 'Dev User',
+  //     },
+  //   });
+  // }
 
-  async processUpload(file: Express.Multer.File): Promise<CvProfile> {
+  async processUpload(userId: string, file: Express.Multer.File): Promise<CvProfile> {
+    userId = await this.userService.ensureUser(userId);
+
     const mime = file.mimetype;
     let rawText: string;
 
@@ -54,26 +58,28 @@ export class ResumeService {
     this.logger.log(`Extracted ${rawText.length} characters from CV`);
     const profile = await this.aiExtractor.extractProfile(rawText);
 
-    await this.ensureDevUser();
-    await this.saveProfile(profile);
+    // await this.ensureDevUser();
+    await this.saveProfile(userId, profile);
 
     return profile;
   }
 
-  async submitGapAnswers(answers: GapAnswerPayload[]): Promise<CvProfile> {
-    const profile = await this.getProfile();
+  async submitGapAnswers(userId: string, answers: GapAnswerPayload[]): Promise<CvProfile> {
+    userId = await this.userService.ensureUser(userId);
+    const profile = await this.getProfile(userId);
     if (!profile) {
       throw new BadRequestException('No profile found. Please upload your CV first.');
     }
 
     const refined = await this.aiExtractor.refineProfileWithAnswers(profile, answers);
-    await this.saveProfile(refined);
+    await this.saveProfile(userId, refined);
     return refined;
   }
 
-  async getProfile(): Promise<CvProfile | null> {
+  async getProfile(userId: string): Promise<CvProfile | null> {
+    userId = await this.userService.ensureUser(userId);
     const row = await this.prisma.cvProfile.findUnique({
-      where: { userId: DEV_USER_ID },
+      where: { userId },
     });
 
     if (!row) return null;
@@ -91,7 +97,7 @@ export class ResumeService {
     };
   }
 
-  private async saveProfile(profile: CvProfile) {
+  private async saveProfile(userId: string, profile: CvProfile) {
     // Cast the inputs to `any` for the education field path so TypeScript
     // tolerates a Prisma client that hasn't been regenerated yet against the
     // new `education` column. After `prisma migrate dev` (or `prisma generate`)
@@ -103,18 +109,27 @@ export class ResumeService {
       roles: profile.roles,
       skills: profile.skills,
       practices: profile.practices,
+      projects: profile.projects ?? [],
       education: profile.education ?? [],
       gapQuestions: profile.gapQuestions,
       isComplete: profile.isComplete,
     };
+    userId = await this.userService.ensureUser(userId);
     await this.prisma.cvProfile.upsert({
-      where: { userId: DEV_USER_ID },
+      where: { userId },
       update: data,
-      create: { userId: DEV_USER_ID, ...data },
+      create: { userId, ...data },
     });
+    if (data.name) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { name: data.name }
+      });
+    }
   }
 
-  async deleteProfile() {
-    await this.prisma.cvProfile.deleteMany({ where: { userId: DEV_USER_ID } });
+  async deleteProfile(userId: string) {
+    userId = await this.userService.ensureUser(userId);
+    await this.prisma.cvProfile.deleteMany({ where: { userId } });
   }
 }

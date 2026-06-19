@@ -21,6 +21,7 @@ import { ResumePdfTemplate } from './ResumePdfTemplate';
 import type { ResumeExperience, ResumeProject, EditableBullet } from '../hooks/useResumeBuilder';
 import type { Job } from '@apcomp/types';
 import ResumePage from './ResumePage';
+import { useApi } from '../lib/api';
 
 interface Props {
   initialJob?: Job | null;
@@ -364,6 +365,7 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
     a.click();
     URL.revokeObjectURL(url);
   }, [state, activeJob]);
+  const api = useApi();
 
   if (loading) return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
@@ -477,7 +479,7 @@ export default function ResumeBuilderPage({ initialJob }: Props) {
             <button
               onClick={() => {
                 if (confirm('Upload a new CV? This will replace your current profile.')) {
-                  fetch('http://localhost:3000/resume/profile', { method: 'DELETE' })
+                  api.del('/resume/profile')
                     .catch(() => {})
                     .finally(() => window.location.reload());
                 }
