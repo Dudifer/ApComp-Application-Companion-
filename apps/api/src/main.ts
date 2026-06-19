@@ -1,4 +1,11 @@
-import 'dotenv/config';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Load .env.production in production, .env otherwise.
+// After build, __dirname is apps/api/dist; env files live one level up in apps/api/
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env';
+dotenv.config({ path: path.resolve(__dirname, '..', envFile) });
+
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import rateLimit from 'express-rate-limit';

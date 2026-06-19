@@ -530,7 +530,7 @@ export default function App() {
                     onClick={() => {
                       if (scraping) return;
                       setScraping(true);
-                      api.get('/applications/scrape', { method: 'POST' })
+                      api.post('/applications/scrape')
                         .then(() => window.location.reload())
                         .catch(err => console.warn('Scrape failed:', err))
                         .finally(() => setScraping(false));
