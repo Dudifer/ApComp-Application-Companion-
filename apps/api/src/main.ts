@@ -13,6 +13,10 @@ import rateLimit from 'express-rate-limit';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Cloudflare tunnel forwards requests — trust the proxy so rate-limiting
+  // and IP detection work correctly.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   const allowedOrigins = [
     'http://localhost:5173',
     `https://${process.env.DOMAIN}`,

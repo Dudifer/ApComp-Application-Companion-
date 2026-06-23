@@ -41,7 +41,7 @@ export function useApplications() {
     // Fetch dashboard applications
     api.get('/applications/dashboard')
       .then(r => r.json())
-      .then(data => { setApplications(data); setLoading(false); })
+      .then(data => { setApplications(Array.isArray(data) ? data : []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
 

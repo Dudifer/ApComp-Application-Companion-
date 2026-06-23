@@ -17,7 +17,7 @@ export class UserService {
     });
 
     if (existing) return existing.id;
-    else {
+    else { // check if we were sent id instead of clerkID (this doesn't happen so far as i can tell)
       const exists = await this.prisma.user.findUnique({
         where: { id: clerkId },
         select: { id: true },
@@ -26,19 +26,17 @@ export class UserService {
       if (exists) return exists.id;
     }
 
-    // First time — fetch user info from Clerk and create in DB
+    // fetch user info from Clerk and create in DB if info doesn't already exist.
     const clerkUser = await clerkClient.users.getUser(clerkId);
     const email = clerkUser.emailAddresses[0]?.emailAddress ?? '';
     const name = [clerkUser.firstName, clerkUser.lastName].filter(Boolean).join(' ');
 
-    const user = await this.prisma.user.create({
-      data: {
-        clerkId,
-        email,
-        name,
-      },
+    const user = await this.prisma.user.upsert({
+      where: { email },
+      update: { clerkId },
+      create: { clerkId, email, name },
     });
 
     return user.id;
-  }
+    }
 }
