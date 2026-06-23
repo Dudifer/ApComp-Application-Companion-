@@ -38,5 +38,5 @@ export class UserService {
     });
 
     return user.id;
-    }
+  }
 }
