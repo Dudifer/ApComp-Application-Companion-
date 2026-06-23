@@ -14,12 +14,6 @@ import { useApi } from './lib/api';
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Search", "Practice"];
 
 
-const STATUS_COLORS: Record<string, string> = {
-  Applied: "status-applied",
-  "Phone Screen": "status-phone",
-  Technical: "status-tech",
-  Offer: "status-offer",
-};
 
 const STATUS_ORDER: Record<string, number> = {
   OFFER: 0,
@@ -576,9 +570,8 @@ export default function App() {
                         <button
                           onClick={() => {
                             setApplications(prev => prev.filter(a => a.id !== app.id));
-                            api.get(`/applications/${app.id}/dismiss`, {
-                              method: 'PATCH',
-                            }).catch(err => console.warn('Failed to dismiss:', err));
+                            api.patch(`/applications/${app.id}/dismiss`)
+                              .catch(err => console.warn('Failed to dismiss:', err));
                           }}
                           style={{
                             background: 'none', border: 'none', cursor: 'pointer',

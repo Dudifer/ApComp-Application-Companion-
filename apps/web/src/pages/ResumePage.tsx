@@ -292,6 +292,7 @@ export default function ResumePage() {
 
   useEffect(() => {
     api.get('/resume/profile')
+      .then(r => r.json())
       .then((p: CvProfile) => {
         if (p && p.name) {
           setProfile(p);
@@ -462,7 +463,7 @@ export default function ResumePage() {
               <GapSection
                 key={company}
                 company={company}
-                questions={questions}
+                questions={questions as GapQuestion[]}
                 answers={answers}
                 onAnswer={(id, val) => setAnswers(a => ({ ...a, [id]: val }))}
               />
