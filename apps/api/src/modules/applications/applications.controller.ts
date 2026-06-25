@@ -38,8 +38,8 @@ export class ApplicationsController {
 
   @Get('gmail/status')
   @UseGuards(ClerkAuthGuard)
-  getGmailStatus(@Req() req: any) {
-    return { connected: this.applicationsService.isGmailConnected(req.userId) };
+  async getGmailStatus(@Req() req: any) {
+    return { connected: await this.applicationsService.isGmailConnected(req.userId) };
   }
 
   // No auth guard — Google's redirect carries no Authorization header.

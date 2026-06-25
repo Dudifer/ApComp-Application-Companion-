@@ -24,6 +24,7 @@ model User {
   processedEmails ProcessedEmail[]
   jobFeedWeights JobFeedWeights?
   userSettings   UserSettings?
+  gmailToken     GmailToken?
 
   @@map("users")
 }
@@ -158,4 +159,17 @@ model ProcessedEmail {
   processedAt DateTime @default(now())
 
   @@map("processed_emails")
+}
+
+model GmailToken {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken  String
+  refreshToken String?
+  expiryDate   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("gmail_tokens")
 }
