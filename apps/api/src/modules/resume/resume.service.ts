@@ -5,6 +5,7 @@ import { DocxParser } from './parsers/docx.parser';
 import { AiExtractorService } from './ai-extractor.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserService } from '../../auth/user.service';
+import { JobsService } from '../jobs/jobs.service';
 
 // const DEV_USER_ID = 'dev-user';
 
@@ -18,6 +19,7 @@ export class ResumeService {
     private readonly aiExtractor: AiExtractorService,
     private readonly prisma: PrismaService,
     private readonly userService: UserService,
+    private readonly jobsService: JobsService,
   ) {}
 
   // private async ensureDevUser() {
@@ -60,6 +62,10 @@ export class ResumeService {
 
     // await this.ensureDevUser();
     await this.saveProfile(userId, profile);
+
+    // Kick off job recommendations in the background — don't block the upload response.
+    this.jobsService.refreshJobs(userId)
+      .catch(err => this.logger.warn('Post-upload job refresh failed:', err));
 
     return profile;
   }
