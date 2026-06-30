@@ -18,7 +18,10 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "dev": "npx tsc --project tsconfig.build.json && node dist/main"
+    "dev": "npx tsc --project tsconfig.build.json && node dist/main",
+    "jobs:server": "ts-node -r tsconfig-paths/register src/jobs-server.ts",
+    "jobs:import": "ts-node -r tsconfig-paths/register src/scripts/import-jobs.ts",
+    "jobs:import:full": "ts-node -r tsconfig-paths/register src/scripts/import-jobs.ts -- --days=90"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",

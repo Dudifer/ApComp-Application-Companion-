@@ -1,0 +1,58 @@
+# Cloudflare Tunnel config for the LAPTOP (jobs service only).
+# This is separate from cloudflared-config.yml which runs on EC2.
+#
+# ── One-time setup ────────────────────────────────────────────────────────────
+#
+# 1. Authenticate with Cloudflare (opens browser):
+#      cloudflared tunnel login
+#
+# 2. Create a new tunnel called "laptop-jobs":
+#      cloudflared tunnel create laptop-jobs
+#    Note the tunnel ID printed (looks like a UUID).
+#
+# 3. Replace <TUNNEL_ID> below with that UUID.
+#    The credentials file is auto-saved to C:\Users\Owner\.cloudflared\<TUNNEL_ID>.json
+#
+# 4. In the Cloudflare dashboard (dash.cloudflare.com → apcomp.us → DNS):
+#    Add a CNAME record:
+#      Name:    jobs
+#      Target:  <TUNNEL_ID>.cfargotunnel.com
+#      Proxied: ✓ (orange cloud)
+#
+# 5. Start the jobs server (run once, or add to pm2 — see below):
+#      cd apps/api && pnpm jobs:server
+#
+# 6. In a separate terminal, run the tunnel:
+#      cloudflared tunnel --config apps/api/cloudflared-laptop.yml run
+#
+# ── Daily import ──────────────────────────────────────────────────────────────
+#
+# Run the initial backfill (do this once before going live):
+#   cd apps/api && pnpm jobs:import:full
+#
+# Then set up a daily refresh. Options:
+#
+# Option A — pm2 cron (recommended):
+#   pm2 start "pnpm jobs:import" --name jobs-import --cron "0 2 * * *" --no-autorestart
+#
+# Option B — Windows Task Scheduler:
+#   Action: cmd /c "cd /d C:\Users\Owner\Desktop\code\projects\ApComp (Application Companion)\apps\api && pnpm jobs:import"
+#   Trigger: Daily at 2:00 AM
+#
+# ── Keep alive with pm2 ───────────────────────────────────────────────────────
+#
+# To have the jobs server and tunnel auto-start on login:
+#   cd apps/api
+#   pm2 start "pnpm jobs:server" --name jobs-server
+#   pm2 start "cloudflared tunnel --config apps/api/cloudflared-laptop.yml run" --name jobs-tunnel
+#   pm2 save
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
+tunnel: <TUNNEL_ID>
+credentials-file: C:\Users\Owner\.cloudflared\<TUNNEL_ID>.json
+
+ingress:
+  - hostname: jobs.apcomp.us
+    service: http://localhost:3002
+  - service: http_status:404
