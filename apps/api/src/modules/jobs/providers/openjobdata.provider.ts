@@ -45,10 +45,17 @@ export class OpenJobDataProvider implements OnModuleInit {
 
   /**
    * Fetch jobs from OpenJobData delta files.
-   * @param queries   Title keywords derived from the user's CV roles
-   * @param daysBack  How many daily delta files to query (7 for initial fetch, 1 for daily refresh)
+   * @param queries          Title keywords from the user's CV or search form
+   * @param daysBack         How many daily delta files to query (7 for initial, 1 for daily cron)
+   * @param postedDays       Only include jobs posted within this many days (undefined = any)
+   * @param experienceLevel  'entry' | 'junior' | 'mid' | 'any' — excludes senior/lead at SQL level
    */
-  async fetchJobs(queries: string[], daysBack = 7): Promise<Job[]> {
+  async fetchJobs(
+    queries: string[],
+    daysBack = 7,
+    postedDays?: number,
+    experienceLevel: 'entry' | 'junior' | 'mid' | 'any' = 'any',
+  ): Promise<Job[]> {
     if (!this.ready) throw new Error('OpenJobDataProvider not initialised');
     if (!queries.length) return [];
 
@@ -56,6 +63,27 @@ export class OpenJobDataProvider implements OnModuleInit {
     const titleFilter = queries
       .map(q => `j.title ILIKE '%${q.replace(/'/g, "''")}%'`)
       .join(' OR ');
+
+    // Exclude senior/executive titles for entry and junior filters
+    const seniorBlock =
+      experienceLevel !== 'any'
+        ? `AND NOT (
+            j.title ILIKE '%senior%' OR j.title ILIKE '% sr %' OR j.title ILIKE '% sr.%'
+            OR j.title ILIKE '%staff %' OR j.title ILIKE '%principal%'
+            OR j.title ILIKE '%lead %' OR j.title ILIKE '%tech lead%'
+            OR j.title ILIKE '%manager%' OR j.title ILIKE '%director%'
+            OR j.title ILIKE '%head of%' OR j.title ILIKE '%vp %'
+            OR j.title ILIKE '%vice president%' OR j.title ILIKE '%10+ years%'
+            OR j.title ILIKE '%8+ years%' OR j.title ILIKE '%7+ years%'
+          )`
+        : '';
+
+    const recencyFilter = postedDays
+      ? `AND (
+          j.posted_at > CURRENT_DATE - INTERVAL '${postedDays} days'
+          OR (j.posted_at IS NULL AND j.fetched_time > CURRENT_DATE - INTERVAL '${postedDays} days')
+        )`
+      : '';
 
     const allRows: any[] = [];
 
@@ -87,12 +115,13 @@ export class OpenJobDataProvider implements OnModuleInit {
               OR j.is_remote = true
               OR j.workplace_type = 'remote'
             )
+            ${seniorBlock}
+            ${recencyFilter}
           LIMIT 150
         `);
         this.logger.log(`${date}: ${rows.length} matching jobs`);
         allRows.push(...rows);
       } catch (err: any) {
-        // Delta file may not exist for this date (gap in feed, weekend, etc.)
         this.logger.debug(`No delta for ${date}: ${err?.message}`);
       }
     }

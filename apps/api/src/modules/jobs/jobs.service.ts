@@ -56,17 +56,29 @@ export class JobsService {
 
   async searchJobs(
     userId: string,
-    params: { title: string; skills?: string; location?: string; remote?: boolean },
+    params: {
+      titles: string[];
+      skills?: string;
+      location?: string;
+      remote?: boolean;
+      postedDays?: number;
+      experienceLevel?: 'entry' | 'junior' | 'mid' | 'any';
+    },
   ): Promise<Job[]> {
     userId = await this.userService.ensureUser(userId);
 
-    const skillsPart = params.skills ? ` ${params.skills.split(',')[0].trim()}` : '';
-    const query = `${params.title}${skillsPart}`;
+    const queries = (params.titles ?? []).filter(Boolean);
+    if (!queries.length) return [];
 
-    this.logger.log(`Manual search: "${query}"`);
+    this.logger.log(`Manual search: [${queries.join(', ')}]`);
 
     const profile = await this.getCvProfile(userId);
-    const raw = await this.openJobData.fetchJobs([query], 7);
+    const raw = await this.openJobData.fetchJobs(
+      queries,
+      7,
+      params.postedDays,
+      params.experienceLevel ?? 'any',
+    );
 
     this.logger.log(`OpenJobData returned ${raw.length} jobs`);
     this.jobCache.saveRawJobs(userId, raw);

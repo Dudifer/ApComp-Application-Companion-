@@ -28,10 +28,12 @@ export class JobsController extends AuthenticatedController {
   searchJobs(
     @Req() req: any,
     @Body() body: {
-      title: string;
+      titles: string[];
       skills?: string;
       location?: string;
       remote?: boolean;
+      postedDays?: number;
+      experienceLevel?: 'entry' | 'junior' | 'mid' | 'any';
     },
   ) {
     return this.jobsService.searchJobs(req.userId, body);
