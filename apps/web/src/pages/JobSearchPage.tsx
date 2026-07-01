@@ -34,6 +34,10 @@ function formatSalary(job: Job): string {
   return range ? `${range} ${currency}` : '';
 }
 
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+}
+
 function timeAgo(iso: string): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
   if (days === 0) return 'today';
@@ -43,7 +47,7 @@ function timeAgo(iso: string): string {
   return `${Math.floor(days / 30)}mo ago`;
 }
 
-export default function JobSearchPage({ onJobSelect }: { onJobSelect?: (job: Job) => void }) {
+export default function JobSearchPage({ onJobSelect, removedJobIds = [] }: { onJobSelect?: (job: Job) => void; removedJobIds?: string[] }) {
   const [stage, setStage] = useState<'form' | 'searching' | 'results'>('form');
   const [params, setParams] = useState<SearchParams>({
     titles: [],
@@ -405,7 +409,7 @@ export default function JobSearchPage({ onJobSelect }: { onJobSelect?: (job: Job
                   No results found. Try broadening your titles, experience level, or recency window.
                 </div>
               ) : (
-                results.map(job => {
+                results.filter(j => !removedJobIds.includes(j.id)).map(job => {
                   const hi = job.relevanceScore >= 70;
                   const mid = job.relevanceScore >= 40;
                   const scoreColor = hi ? 'var(--green)' : mid ? 'var(--amber)' : 'var(--ink-tertiary)';
@@ -438,8 +442,10 @@ export default function JobSearchPage({ onJobSelect }: { onJobSelect?: (job: Job
                       </div>
 
                       <div className="sp-card-meta">
-                        <span>📍 {job.location?.displayName ?? 'Unknown'}</span>
-                        {job.remote && <span>🌐 Remote</span>}
+                        {job.remote
+                          ? <span>🌐 Remote</span>
+                          : <span>📍 {job.location?.displayName && job.location.displayName !== 'Unknown' ? job.location.displayName : 'US'}</span>
+                        }
                         {job.salary && <span>💰 {formatSalary(job)}</span>}
                         <span>🕐 {timeAgo(job.postedAt)}</span>
                       </div>
@@ -452,7 +458,7 @@ export default function JobSearchPage({ onJobSelect }: { onJobSelect?: (job: Job
                         </div>
                       )}
 
-                      <div className="sp-card-desc">{job.description}</div>
+                      <div className="sp-card-desc">{stripHtml(job.description)}</div>
                     </div>
                   );
                 })
