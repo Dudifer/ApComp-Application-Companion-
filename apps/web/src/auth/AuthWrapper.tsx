@@ -1,24 +1,26 @@
-import { SignedIn, SignedOut, SignIn } from '@clerk/clerk-react';
+import { SignedIn, SignedOut } from '@clerk/clerk-react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import LandingPage from '../pages/LandingPage';
+import TermsPage from '../pages/TermsPage';
 
+/** Wraps the authenticated app. Unauthenticated users are routed to /home. */
 export function AuthWrapper({ children }: { children: React.ReactNode }) {
   return (
-    <>
-      <SignedIn>{children}</SignedIn>
-      <SignedOut>
-        <div style={{
-          minHeight: '100vh', display: 'flex', alignItems: 'center',
-          justifyContent: 'center', background: 'var(--surface)',
-        }}>
-          <SignIn
-            appearance={{
-              elements: {
-                rootBox: { fontFamily: 'var(--font-body)' },
-                card: { borderRadius: 16, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' },
-              },
-            }}
-          />
-        </div>
-      </SignedOut>
-    </>
+    <Routes>
+      {/* Public routes — always accessible */}
+      <Route path="/home" element={<LandingPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+
+      {/* App routes — require auth */}
+      <Route
+        path="/*"
+        element={
+          <>
+            <SignedIn>{children}</SignedIn>
+            <SignedOut><Navigate to="/home" replace /></SignedOut>
+          </>
+        }
+      />
+    </Routes>
   );
 }

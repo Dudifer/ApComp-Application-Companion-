@@ -567,11 +567,20 @@ export default function App() {
                   <div className="section-title">Pending Applications</div>
                   <div className="section-count">{applications.length} active</div>
                   {!gmailConnected ? (
-                  <button onClick={connectGmail} style={{
-                    fontSize: 12, padding: '4px 12px', borderRadius: 8,
-                    background: 'var(--ink)', color: 'white', border: 'none',
-                    cursor: 'pointer', fontFamily: 'var(--font-body)',
-                  }}>
+                  <button
+                    onClick={() => {
+                      if (user?.primaryEmailAddress?.emailAddress === 'jacob.6nyberg@gmail.com') {
+                        connectGmail();
+                      } else {
+                        alert('Gmail integration is not available yet for your account.');
+                      }
+                    }}
+                    style={{
+                      fontSize: 12, padding: '4px 12px', borderRadius: 8,
+                      background: 'var(--ink)', color: 'white', border: 'none',
+                      cursor: 'pointer', fontFamily: 'var(--font-body)',
+                    }}
+                  >
                     Connect Gmail
                   </button>
                 ) : (
