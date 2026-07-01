@@ -63,6 +63,20 @@ function formatContractTime(val: string): string {
   return val.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
+/** Strip HTML tags — used only for plain-text fallback in source badge etc */
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+}
+
+/** Basic sanitizer — remove scripts/styles/event-handlers before dangerouslySetInnerHTML */
+function sanitizeHtml(html: string): string {
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\son\w+\s*=\s*'[^']*'/gi, '');
+}
+
 function Badge({ label, color }: { label: string; color?: string }) {
   return (
     <span style={{
@@ -150,6 +164,15 @@ export function JobDetailPanel({ job, onClose, onDismiss, onSave, onTailor}: Job
 
   return (
     <>
+      <style>{`
+        .job-desc-html { font-family: var(--font-body); }
+        .job-desc-html p { margin: 0 0 10px; }
+        .job-desc-html ul, .job-desc-html ol { padding-left: 20px; margin: 0 0 10px; }
+        .job-desc-html li { margin-bottom: 4px; }
+        .job-desc-html h1, .job-desc-html h2, .job-desc-html h3 { font-family: var(--font-display); font-size: 14px; font-weight: 600; margin: 14px 0 6px; color: var(--ink); }
+        .job-desc-html strong, .job-desc-html b { font-weight: 600; color: var(--ink); }
+        .job-desc-html a { color: var(--accent); }
+      `}</style>
       {/* Backdrop */}
       <div
         onClick={onClose}
@@ -190,7 +213,7 @@ export function JobDetailPanel({ job, onClose, onDismiss, onSave, onTailor}: Job
                   background: 'var(--surface-2)', color: 'var(--ink-tertiary)',
                   fontFamily: 'var(--font-body)', border: '1px solid var(--border)',
                 }}>
-                  {job.source === 'adzuna' ? 'Adzuna' : job.publisher ?? 'JSearch'}
+                  {job.source === 'adzuna' ? 'Adzuna' : job.source === 'openjobdata' ? 'OpenJobData' : job.publisher ?? 'JSearch'}
                 </span>
                 {job.remote && (
                   <span style={{
@@ -264,15 +287,24 @@ export function JobDetailPanel({ job, onClose, onDismiss, onSave, onTailor}: Job
           )}
 
           <Section title="Details">
-            <MetaRow label="Salary" value={formatSalary(job)} />
-            <MetaRow label="Contract" value={`${formatContractTime(job.contractTime)} · ${formatContractTime(job.contractType)}`} />
-            <MetaRow label="Experience" value={formatExperience(job)} />
+            {job.salary && <MetaRow label="Salary" value={formatSalary(job)} />}
+            {(job.contractTime !== 'unknown' || job.contractType !== 'unknown') && (
+              <MetaRow label="Type" value={[
+                job.contractTime !== 'unknown' ? formatContractTime(job.contractTime) : null,
+                job.contractType !== 'unknown' ? formatContractTime(job.contractType) : null,
+              ].filter(Boolean).join(' · ')} />
+            )}
+            {job.experience && <MetaRow label="Experience" value={formatExperience(job)} />}
             {job.education?.bachelorsRequired && (
               <MetaRow label="Education" value={
                 job.education.postgraduateRequired ? "Postgraduate degree" :
                 job.education.degreePreferred ? "Bachelor's (preferred)" : "Bachelor's degree"
               } />
             )}
+            {job.location?.displayName && job.location.displayName !== 'Unknown' && (
+              <MetaRow label="Location" value={job.location.displayName} />
+            )}
+            {job.remote && <MetaRow label="Remote" value="Yes" />}
             <MetaRow label="Posted" value={formatDate(job.postedAt)} />
             {job.expiresAt && <MetaRow label="Expires" value={formatDate(job.expiresAt)} />}
             {job.category && <MetaRow label="Category" value={job.category} />}
@@ -453,12 +485,17 @@ export function JobDetailPanel({ job, onClose, onDismiss, onSave, onTailor}: Job
           )}
 
           <Section title="Full description">
-            <p style={{
-              fontSize: 13, color: 'var(--ink-secondary)', lineHeight: 1.7,
-              whiteSpace: 'pre-wrap', margin: 0,
-            }}>
-              {job.description}
-            </p>
+            {/<[a-z]/i.test(job.description ?? '') ? (
+              <div
+                style={{ fontSize: 13, color: 'var(--ink-secondary)', lineHeight: 1.7 }}
+                className="job-desc-html"
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(job.description ?? '') }}
+              />
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--ink-secondary)', lineHeight: 1.7, whiteSpace: 'pre-wrap', margin: 0 }}>
+                {job.description}
+              </p>
+            )}
           </Section>
 
           {(job.applyOptions ?? []).length > 1 && (
@@ -509,7 +546,7 @@ export function JobDetailPanel({ job, onClose, onDismiss, onSave, onTailor}: Job
             Apply now →
           </a>
           <button
-            onClick={() => onSave(job)}
+            onClick={() => { onSave(job); onClose(); }}
             style={{
               padding: '11px 18px', background: 'white', border: '1px solid var(--border)',
               borderRadius: 8, fontSize: 13, color: 'var(--ink-secondary)',

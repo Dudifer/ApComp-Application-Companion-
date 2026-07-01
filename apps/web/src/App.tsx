@@ -43,6 +43,7 @@ export default function App() {
   const [tailorJob, setTailorJob] = useState<Job | null>(null);
 
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const [removedJobIds, setRemovedJobIds] = useState<string[]>([]);
 
   const [scraping, setScraping] = useState(false);
   
@@ -484,7 +485,7 @@ export default function App() {
           ): active === 'Resume Builder' ? (
             <ResumeBuilderPage initialJob={tailorJob} onNavigate={(page) => setActive(page)}/>
           ) : active === 'Job Search' ? (
-            <JobSearchPage onJobSelect={job => { setSelectedJob(job); }}/>
+            <JobSearchPage onJobSelect={job => setSelectedJob(job)} removedJobIds={removedJobIds} />
           ) : (//active === 'Resume Demo' ? (
           //   <ResumeDemoPage />
           // ) : (
@@ -639,8 +640,29 @@ export default function App() {
       <JobDetailPanel
         job={selectedJob}
         onClose={() => setSelectedJob(null)}
-        onDismiss={(j) => console.log('dismiss', j.id)}
-        onSave={(j) => console.log('save', j.id)}
+        onDismiss={(j) => {
+          setRemovedJobIds(prev => [...prev, j.id]);
+          api.post('/jobs/dismiss', {
+            jobId: j.externalId ?? j.id,
+            source: j.source,
+            company: j.company,
+            title: j.title,
+          }).catch(err => console.warn('Failed to dismiss job:', err));
+        }}
+        onSave={(j) => {
+          setRemovedJobIds(prev => [...prev, j.id]);
+          api.post('/jobs/capture', {
+            title: j.title,
+            company: j.company,
+            url: j.url,
+            description: j.description,
+            location: j.location?.displayName,
+            remote: j.remote,
+            employmentType: j.employmentType,
+            postedAt: j.postedAt,
+            tags: j.tags,
+          }).catch(err => console.warn('Failed to save job:', err));
+        }}
         onTailor={(j) => { setTailorJob(j); setActive('Resume Builder'); setSelectedJob(null); }}
       />
     </>
