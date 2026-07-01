@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useUser, useClerk } from '@clerk/clerk-react';
 import type { Job } from '../../../packages/types/src/job';
 import { JobDetailPanel } from './components/JobDetailPanel';
 import { useApplications, STATUS_CONFIG } from './hooks/useApplications';
@@ -32,7 +33,30 @@ const STATUS_ORDER: Record<string, number> = {
  
 export default function App() {
   const api = useApi();
-  
+  const { user } = useUser();
+  const { signOut } = useClerk();
+
+  const firstName = user?.firstName ?? user?.username ?? 'there';
+  const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
+  const initials = fullName
+    ? fullName.split(' ').map(w => w[0].toUpperCase()).slice(0, 2).join('')
+    : (user?.username?.[0]?.toUpperCase() ?? '?');
+
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  const avatarRef = useRef<HTMLDivElement>(null);
+
+  // Close avatar menu on outside click
+  useEffect(() => {
+    if (!avatarMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (avatarRef.current && !avatarRef.current.contains(e.target as Node)) {
+        setAvatarMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [avatarMenuOpen]);
+
   const { jobs } = useJobs();
 
   const [active, setActive] = useState("Dashboard");
@@ -473,7 +497,37 @@ export default function App() {
             </button>
           ))}
           <div className="nav-right">
-            <div className="avatar">JN</div>
+            <div style={{ position: 'relative' }} ref={avatarRef}>
+              <div className="avatar" onClick={() => setAvatarMenuOpen(o => !o)}>
+                {initials}
+              </div>
+              {avatarMenuOpen && (
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 8px)', right: 0,
+                  background: 'white', border: '1px solid var(--border)',
+                  borderRadius: 10, boxShadow: '0 4px 20px rgba(26,24,20,0.1)',
+                  minWidth: 180, zIndex: 500, overflow: 'hidden',
+                }}>
+                  <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{fullName || user?.username}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-tertiary)', marginTop: 2 }}>{user?.primaryEmailAddress?.emailAddress}</div>
+                  </div>
+                  <button
+                    onClick={() => signOut()}
+                    style={{
+                      width: '100%', padding: '10px 14px', background: 'none',
+                      border: 'none', cursor: 'pointer', fontSize: 13,
+                      color: 'var(--ink-secondary)', textAlign: 'left',
+                      fontFamily: 'var(--font-body)', transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </nav>
   
@@ -491,7 +545,7 @@ export default function App() {
           // ) : (
             
             <>
-              <div className="greeting">Good evening, Jacob.</div>
+              <div className="greeting">Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'}, {firstName}.</div>
               <div className="greeting-sub">Here's where things stand today.</div>
 
               <div className="stats-row">
