@@ -5,9 +5,10 @@ import { PdfParser } from './parsers/pdf.parser';
 import { DocxParser } from './parsers/docx.parser';
 import { AiExtractorService } from './ai-extractor.service';
 import { AuthModule } from '../../auth/auth.module';
+import { JobsModule } from '../jobs/jobs.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, JobsModule],
   controllers: [ResumeController],
   providers: [ResumeService, PdfParser, DocxParser, AiExtractorService],
   exports: [ResumeService],

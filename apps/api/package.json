@@ -18,7 +18,11 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "dev": "npx tsc --project tsconfig.build.json && node dist/main"
+    "dev": "npx tsc --project tsconfig.build.json && node dist/main",
+    "jobs:server": "ts-node -r tsconfig-paths/register src/jobs-server.ts",
+    "jobs:import": "ts-node -r tsconfig-paths/register src/scripts/import-jobs.ts",
+    "jobs:import:all": "ts-node -r tsconfig-paths/register src/scripts/import-jobs.ts -- --all",
+    "jobs:import:local": "ts-node -r tsconfig-paths/register src/scripts/import-jobs.ts -- --local-dir="
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
@@ -27,10 +31,12 @@
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/schedule": "^5.0.1",
     "@prisma/adapter-pg": "^6.19.3",
     "@prisma/client": "^6.19.3",
     "axios": "^1.15.2",
     "dotenv": "^17.4.2",
+    "duckdb": "^1.4.4",
     "express-rate-limit": "^8.5.2",
     "googleapis": "^171.4.0",
     "mammoth": "^1.12.0",

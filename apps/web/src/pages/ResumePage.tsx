@@ -256,9 +256,7 @@ export default function ResumePage() {
     setProcessingMsg('Refining your profile with your answers...');
     try {
       const payload = Object.entries(answers).map(([questionId, answer]) => ({ questionId, answer }));
-      const res = await api.post('/resume/gap-answers', {
-        body: JSON.stringify({ answers: payload }),
-      });
+      const res = await api.post('/resume/gap-answers', { answers: payload });
       if (!res.ok) throw new Error(await res.text());
       const refined: CvProfile = await res.json();
       setProfile(refined);
@@ -300,7 +298,8 @@ export default function ResumePage() {
         }
       })
       .catch(() => {});
-  }, [api]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <>

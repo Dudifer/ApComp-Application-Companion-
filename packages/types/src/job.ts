@@ -1,4 +1,4 @@
-export type JobSource = 'adzuna' | 'jsearch' | 'manual';
+export type JobSource = 'adzuna' | 'jsearch' | 'manual' | 'openjobdata';
 export type JobStatus = 'new' | 'saved' | 'dismissed' | 'applied';
 export type ContractTime = 'full_time' | 'part_time' | 'contractor' | 'intern' | 'unknown';
 export type ContractType = 'permanent' | 'contract' | 'unknown';

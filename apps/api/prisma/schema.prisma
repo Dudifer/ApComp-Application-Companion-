@@ -173,3 +173,29 @@ model GmailToken {
 
   @@map("gmail_tokens")
 }
+
+// Full job catalog — lives on the laptop's local PostgreSQL, queried via jobs-server.ts
+model JobCatalog {
+  id              String    @id           // external dataset ID
+  title           String
+  company         String?
+  country         String?
+  city            String?
+  state           String?
+  locationDisplay String?
+  isRemote        Boolean   @default(false)
+  workplaceType   String?
+  employmentType  String?
+  postedAt        DateTime?
+  applyUrl        String?
+  department      String?
+  description     String?   @db.Text
+  status          String    @default("active")
+  importedAt      DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
+  @@index([isRemote])
+  @@index([postedAt(sort: Desc)])
+  @@map("job_catalog")
+}
