@@ -55,7 +55,8 @@ export default function AllApplicationsPage() {
       .then(r => r.json())
       .then(data => { setApps(data); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [api]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const statuses = ['ALL', ...Object.keys(STATUS_CONFIG)];
 
