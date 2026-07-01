@@ -34,7 +34,9 @@ import { PrismaClient } from '../../generated/prisma';
 const HF_BUCKET_BASE = 'https://huggingface.co/datasets/Invicto69/Jobs-Dataset-bucket/resolve/main';
 const HF_FULL_BASE   = `${HF_BUCKET_BASE}/data/full`;
 
-const TMP_DIR        = path.join(os.tmpdir(), 'apcomp-import');
+const TMP_DIR         = path.join(os.tmpdir(), 'apcomp-import');
+// Persistent companies cache — survives reboots, copied from --local-dir on first run
+const COMPANIES_PERSISTENT = path.join(__dirname, '..', '..', 'data', 'companies.parquet');
 const COMPANIES_CACHE = path.join(TMP_DIR, 'companies.parquet');
 const COMPANIES_TTL_MS = 24 * 60 * 60 * 1000;
 const BATCH_SIZE     = 200;
@@ -49,8 +51,10 @@ const MAX_MISSING_DAYS = 7;
 
 const args = process.argv.slice(2);
 
-const localDirArg  = args.find(a => a.startsWith('--local-dir='))?.split('=').slice(1).join('=');
-const LOCAL_DIR    = localDirArg ? path.resolve(localDirArg) : null;
+const localDirArg   = args.find(a => a.startsWith('--local-dir='))?.split('=').slice(1).join('=');
+const LOCAL_DIR     = localDirArg ? path.resolve(localDirArg) : null;
+const companiesArg  = args.find(a => a.startsWith('--companies='))?.split('=').slice(1).join('=');
+const COMPANIES_ARG = companiesArg ? path.resolve(companiesArg) : null;
 const FULL_MODE    = args.includes('--all') || LOCAL_DIR !== null;
 const daysArg      = args.find(a => a.startsWith('--days='))?.split('=')[1];
 const DAYS_BACK    = Number(daysArg ?? 7);
@@ -69,10 +73,19 @@ function dbAll(db: duckdb.Database, sql: string): Promise<any[]> {
 
 // ── File helpers ───────────────────────────────────────────────────────────
 
+function hfHeaders(): HeadersInit {
+  const token = process.env.HF_TOKEN;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function tryDownload(url: string, dest: string): Promise<'ok' | 'missing' | 'error'> {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+    const res = await fetch(url, {
+      headers: hfHeaders(),
+      signal: AbortSignal.timeout(120_000),
+    });
     if (res.status === 404) return 'missing';
+    if (res.status === 401) throw new Error('HTTP 401 — set HF_TOKEN in .env (huggingface.co/settings/tokens)');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const buf = await res.arrayBuffer();
     fs.writeFileSync(dest, Buffer.from(buf));
@@ -84,15 +97,31 @@ async function tryDownload(url: string, dest: string): Promise<'ok' | 'missing' 
 }
 
 async function ensureCompanies(localDir: string | null): Promise<string> {
-  // If user has companies.parquet locally, use it
+  // 1. Explicit --companies=PATH arg
+  if (COMPANIES_ARG && fs.existsSync(COMPANIES_ARG)) {
+    console.log(`  companies.parquet: using ${COMPANIES_ARG}`);
+    return COMPANIES_ARG;
+  }
+
+  // 2. File from --local-dir
   if (localDir) {
     const local = path.join(localDir, 'companies.parquet');
     if (fs.existsSync(local)) {
-      console.log('  companies.parquet: using local file');
-      return local;
+      // Persist it so future delta runs can find it without --local-dir
+      fs.mkdirSync(path.dirname(COMPANIES_PERSISTENT), { recursive: true });
+      fs.copyFileSync(local, COMPANIES_PERSISTENT);
+      console.log(`  companies.parquet: using local file (saved to apps/api/data/ for future runs)`);
+      return COMPANIES_PERSISTENT;
     }
   }
-  // Try cache
+
+  // 3. Persistent copy saved from a previous --local-dir run
+  if (fs.existsSync(COMPANIES_PERSISTENT)) {
+    console.log('  companies.parquet: using saved copy');
+    return COMPANIES_PERSISTENT;
+  }
+
+  // 4. Temp cache (recent download)
   if (fs.existsSync(COMPANIES_CACHE)) {
     const age = Date.now() - fs.statSync(COMPANIES_CACHE).mtimeMs;
     if (age < COMPANIES_TTL_MS) {
@@ -100,10 +129,20 @@ async function ensureCompanies(localDir: string | null): Promise<string> {
       return COMPANIES_CACHE;
     }
   }
-  // Download
+
+  // 5. Try downloading (requires HF_TOKEN in .env)
   process.stdout.write('  companies.parquet: downloading... ');
   const result = await tryDownload(`${HF_BUCKET_BASE}/data/companies/companies.parquet`, COMPANIES_CACHE);
-  if (result !== 'ok') throw new Error('Could not download companies.parquet — try --local-dir');
+  if (result !== 'ok') {
+    throw new Error(
+      'Cannot find companies.parquet.\n\n' +
+      'Options:\n' +
+      '  a) Run with your download folder: pnpm jobs:import -- --local-dir="C:\\path\\to\\files"\n' +
+      '     (companies.parquet will be saved permanently for future delta runs)\n\n' +
+      '  b) Specify it directly: pnpm jobs:import -- --companies="C:\\path\\to\\companies.parquet"\n\n' +
+      '  c) Set HF_TOKEN in .env with a HuggingFace token that can access the bucket'
+    );
+  }
   console.log(`${(fs.statSync(COMPANIES_CACHE).size / 1024 / 1024).toFixed(1)} MB`);
   return COMPANIES_CACHE;
 }
@@ -233,22 +272,24 @@ async function importFromLocalDir(
   localDir: string,
   companiesPath: string,
 ): Promise<number> {
-  const partFiles = fs.readdirSync(localDir)
-    .filter(f => f.match(/^part-\d+\.parquet$/i))
+  const files = fs.readdirSync(localDir)
+    .filter(f => f.toLowerCase().endsWith('.parquet') && f.toLowerCase() !== 'companies.parquet')
     .sort((a, b) => {
-      const na = parseInt(a.match(/\d+/)![0]);
-      const nb = parseInt(b.match(/\d+/)![0]);
-      return na - nb;
+      // Sort part-N files numerically; date files (YYYY-MM-DD) sort naturally as strings
+      const numA = a.match(/part-(\d+)/i);
+      const numB = b.match(/part-(\d+)/i);
+      if (numA && numB) return parseInt(numA[1]) - parseInt(numB[1]);
+      return a.localeCompare(b);
     });
 
-  if (!partFiles.length) {
-    throw new Error(`No part-N.parquet files found in ${localDir}`);
+  if (!files.length) {
+    throw new Error(`No .parquet files found in ${localDir} (excluding companies.parquet)`);
   }
 
-  console.log(`Found ${partFiles.length} part files in ${localDir}\n`);
+  console.log(`Found ${files.length} file(s) in ${localDir}\n`);
 
   let total = 0;
-  for (const file of partFiles) {
+  for (const file of files) {
     total += await processParquet(db, file, path.join(localDir, file), companiesPath);
   }
   return total;
