@@ -27,8 +27,8 @@
 #
 # ── Daily import ──────────────────────────────────────────────────────────────
 #
-# Run the initial backfill (do this once before going live):
-#   cd apps/api && pnpm jobs:import:full
+# Run the full import (do this once before going live — may take several hours):
+#   cd apps/api && pnpm jobs:import:all
 #
 # Then set up a daily refresh. Options:
 #
@@ -49,8 +49,8 @@
 #
 # ─────────────────────────────────────────────────────────────────────────────
 
-tunnel: <TUNNEL_ID>
-credentials-file: C:\Users\Owner\.cloudflared\<TUNNEL_ID>.json
+tunnel: fc8fc3fe-98e1-4258-82aa-e76732d7eeda
+credentials-file: C:\Users\Owner\.cloudflared\fc8fc3fe-98e1-4258-82aa-e76732d7eeda.json
 
 ingress:
   - hostname: jobs.apcomp.us

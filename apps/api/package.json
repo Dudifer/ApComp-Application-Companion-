@@ -21,7 +21,8 @@
     "dev": "npx tsc --project tsconfig.build.json && node dist/main",
     "jobs:server": "ts-node -r tsconfig-paths/register src/jobs-server.ts",
     "jobs:import": "ts-node -r tsconfig-paths/register src/scripts/import-jobs.ts",
-    "jobs:import:full": "ts-node -r tsconfig-paths/register src/scripts/import-jobs.ts -- --days=90"
+    "jobs:import:all": "ts-node -r tsconfig-paths/register src/scripts/import-jobs.ts -- --all",
+    "jobs:import:local": "ts-node -r tsconfig-paths/register src/scripts/import-jobs.ts -- --local-dir="
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
