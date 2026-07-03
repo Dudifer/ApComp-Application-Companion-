@@ -109,6 +109,30 @@ export default function LandingPage() {
           font-weight: 300;
         }
 
+        .lp-gmail-section {
+          max-width: 780px; margin: 0 auto; padding: 72px 48px;
+        }
+        .lp-gmail-section h2 {
+          font-family: var(--font-display); font-size: clamp(20px, 3vw, 26px);
+          font-weight: 700; letter-spacing: -0.03em; color: var(--ink);
+          margin-bottom: 14px;
+        }
+        .lp-gmail-section p {
+          font-size: 14px; color: var(--ink-secondary); line-height: 1.75;
+          font-weight: 300; margin-bottom: 12px;
+        }
+        .lp-gmail-list {
+          list-style: none; padding: 0; margin: 16px 0;
+        }
+        .lp-gmail-list li {
+          font-size: 13px; color: var(--ink-secondary); line-height: 1.7;
+          padding: 10px 0; border-bottom: 1px solid var(--border);
+          display: flex; gap: 12px;
+        }
+        .lp-gmail-list li:last-child { border-bottom: none; }
+        .lp-gmail-list .check { color: var(--green); flex-shrink: 0; font-weight: 600; }
+        .lp-gmail-list .cross { color: var(--accent); flex-shrink: 0; font-weight: 600; }
+
         .lp-bottom-cta {
           padding: 80px 48px; text-align: center; max-width: 680px; margin: 0 auto;
         }
@@ -184,14 +208,39 @@ export default function LandingPage() {
               <span className="lp-card-icon">📬</span>
               <div className="lp-card-title">Application Tracker</div>
               <p className="lp-card-body">
-                Connect your Gmail and ApComp automatically detects confirmation emails,
-                interview invites, and recruiter replies — keeping a live status board of
-                every application without any manual entry.
+                Connect your Gmail account and ApComp uses read-only access to detect
+                job application confirmation emails, interview invitations, and recruiter
+                replies. It builds a live status board of every application automatically
+                — no manual entry needed. ApComp never modifies, sends, or deletes your emails.
               </p>
             </div>
           </div>
         </div>
       </section>
+
+      {/* Google data use — required disclosure for OAuth verification */}
+      <div style={{ background: 'white', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+        <div className="lp-gmail-section">
+          <h2>How ApComp uses your Google account</h2>
+          <p>
+            When you connect Gmail, ApComp requests <strong>read-only</strong> access to your inbox
+            via the Google Gmail API. This is the only Google permission the app requests.
+            Here is exactly what that access is used for:
+          </p>
+          <ul className="lp-gmail-list">
+            <li><span className="check">✓</span> Reading the subject lines, sender addresses, and bodies of emails that appear to be job application confirmations, recruiter messages, or interview invitations.</li>
+            <li><span className="check">✓</span> Extracting the company name, application status, and date from those emails to populate your application tracker dashboard.</li>
+            <li><span className="cross">✗</span> ApComp does <strong>not</strong> read, store, or process any emails unrelated to job applications.</li>
+            <li><span className="cross">✗</span> ApComp does <strong>not</strong> send, modify, or delete any emails on your behalf.</li>
+            <li><span className="cross">✗</span> ApComp does <strong>not</strong> share your email data with any third party or use it for advertising purposes.</li>
+          </ul>
+          <p>
+            You can disconnect your Gmail account at any time from your dashboard. Disconnecting
+            immediately revokes ApComp's access token and stops all email scanning.
+            See our <Link to="/terms" style={{ color: 'var(--accent)' }}>Privacy Policy</Link> for full details.
+          </p>
+        </div>
+      </div>
 
       {/* Bottom CTA */}
       <div style={{ textAlign: 'center' }}>

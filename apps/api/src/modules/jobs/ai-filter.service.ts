@@ -93,13 +93,15 @@ No explanation, no markdown, just the JSON array.`;
     try {
       const message = await client.messages.create({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
+        max_tokens: 4096,
         messages: [{ role: 'user', content: prompt }],
       });
 
       const text = message.content[0].type === 'text' ? message.content[0].text : '';
-      const clean = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-      const scores: { id: string; score: number; tags: string[] }[] = JSON.parse(clean);
+      // Extract the JSON array even if Claude wraps it in markdown or adds commentary
+      const match = text.match(/\[[\s\S]*\]/);
+      if (!match) throw new Error(`No JSON array found in AI response: ${text.slice(0, 200)}`);
+      const scores: { id: string; score: number; tags: string[] }[] = JSON.parse(match[0]);
 
       return preFiltered
         .map(job => {
