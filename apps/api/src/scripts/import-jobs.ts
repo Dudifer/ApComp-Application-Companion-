@@ -272,10 +272,23 @@ async function importFromLocalDir(
   localDir: string,
   companiesPath: string,
 ): Promise<number> {
+  // Refresh companies if the folder contains a new copy
+  const localCompanies = path.join(localDir, 'companies.parquet');
+  if (fs.existsSync(localCompanies)) {
+    fs.mkdirSync(path.dirname(COMPANIES_PERSISTENT), { recursive: true });
+    fs.copyFileSync(localCompanies, COMPANIES_PERSISTENT);
+    companiesPath = COMPANIES_PERSISTENT;
+    console.log('  companies.parquet: updated from local folder\n');
+  }
+
   const files = fs.readdirSync(localDir)
     .filter(f => f.toLowerCase().endsWith('.parquet') && f.toLowerCase() !== 'companies.parquet')
     .sort((a, b) => {
-      // Sort part-N files numerically; date files (YYYY-MM-DD) sort naturally as strings
+      // Date files (YYYY-MM-DD.parquet) — sort ascending so oldest changes apply first
+      const dateA = a.match(/^(\d{4}-\d{2}-\d{2})\.parquet$/i);
+      const dateB = b.match(/^(\d{4}-\d{2}-\d{2})\.parquet$/i);
+      if (dateA && dateB) return dateA[1].localeCompare(dateB[1]);
+      // Part files — sort numerically
       const numA = a.match(/part-(\d+)/i);
       const numB = b.match(/part-(\d+)/i);
       if (numA && numB) return parseInt(numA[1]) - parseInt(numB[1]);
