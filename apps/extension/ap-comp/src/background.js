@@ -10,17 +10,43 @@
  */
 
 const DEFAULT_API_BASE = 'http://localhost:3000';
+const DEFAULT_WEB_BASE = 'http://localhost:5173';
 
 async function getApiBase() {
   const { apiBase } = await chrome.storage.sync.get({ apiBase: DEFAULT_API_BASE });
   return apiBase || DEFAULT_API_BASE;
 }
 
+async function getWebBase() {
+  const { webBase } = await chrome.storage.sync.get({ webBase: DEFAULT_WEB_BASE });
+  return webBase || DEFAULT_WEB_BASE;
+}
+
+/**
+ * Reads the Clerk session token from the web app's __session cookie.
+ * Requires the "cookies" permission and the web app URL in host_permissions.
+ */
+async function getSessionToken() {
+  const webBase = await getWebBase();
+  try {
+    const cookie = await chrome.cookies.get({ url: webBase, name: '__session' });
+    return cookie?.value ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function authHeaders() {
+  const token = await getSessionToken();
+  if (!token) throw new Error('Not signed in to ApComp — open the app and log in first.');
+  return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
+}
+
 async function postCapture(payload) {
   const base = await getApiBase();
   const res = await fetch(`${base}/jobs/capture`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await authHeaders(),
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
@@ -32,7 +58,9 @@ async function postCapture(payload) {
 
 async function getCvProfile() {
   const base = await getApiBase();
-  const res = await fetch(`${base}/resume/profile`);
+  const res = await fetch(`${base}/resume/profile`, {
+    headers: await authHeaders(),
+  });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`API ${res.status}: ${text || res.statusText}`);
@@ -74,12 +102,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'APCOMP_GET_API_BASE') {
-    getApiBase().then((apiBase) => sendResponse({ apiBase }));
+    Promise.all([getApiBase(), getWebBase()]).then(([apiBase, webBase]) => sendResponse({ apiBase, webBase }));
     return true;
   }
 
   if (message.type === 'APCOMP_SET_API_BASE') {
-    chrome.storage.sync.set({ apiBase: message.apiBase }).then(() => sendResponse({ ok: true }));
+    chrome.storage.sync.set({ apiBase: message.apiBase, webBase: message.webBase }).then(() => sendResponse({ ok: true }));
     return true;
   }
 
