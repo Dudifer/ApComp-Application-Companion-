@@ -25,6 +25,7 @@ const els = {
   settingsBtn: $('settings-btn'),
   settingsPanel: $('settings-panel'),
   apiBase: $('api-base'),
+  webBase: $('web-base'),
   saveSettings: $('save-settings'),
 
   // tabs
@@ -214,16 +215,18 @@ async function runAutoFill() {
 async function toggleSettings() {
   els.settingsPanel.classList.toggle('hidden');
   if (!els.settingsPanel.classList.contains('hidden')) {
-    const { apiBase } = await chrome.runtime.sendMessage({ type: 'APCOMP_GET_API_BASE' });
+    const { apiBase, webBase } = await chrome.runtime.sendMessage({ type: 'APCOMP_GET_API_BASE' });
     els.apiBase.value = apiBase ?? '';
+    els.webBase.value = webBase ?? '';
   }
 }
 
 async function saveSettings() {
   const apiBase = els.apiBase.value.trim();
+  const webBase = els.webBase.value.trim();
   if (!apiBase) return;
-  await chrome.runtime.sendMessage({ type: 'APCOMP_SET_API_BASE', apiBase });
-  setStatus(els.status, 'API base saved.', 'ok');
+  await chrome.runtime.sendMessage({ type: 'APCOMP_SET_API_BASE', apiBase, webBase });
+  setStatus(els.status, 'Settings saved.', 'ok');
   els.settingsPanel.classList.add('hidden');
 }
 
