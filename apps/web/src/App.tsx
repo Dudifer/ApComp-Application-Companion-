@@ -569,7 +569,8 @@ export default function App() {
                   {!gmailConnected ? (
                   <button
                     onClick={() => {
-                      if (user?.primaryEmailAddress?.emailAddress === 'jacob.6nyberg@gmail.com') {
+                      const GMAIL_ALLOWED = ['jacob.6nyberg@gmail.com', 'sheeshthebot@gmail.com'];
+                      if (GMAIL_ALLOWED.includes(user?.primaryEmailAddress?.emailAddress ?? '')) {
                         connectGmail();
                       } else {
                         alert('Gmail integration is not available yet for your account.');
