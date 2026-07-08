@@ -68,6 +68,14 @@ export default function App() {
 
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   const [removedJobIds, setRemovedJobIds] = useState<string[]>([]);
+  const [savedJobs, setSavedJobs] = useState<Job[]>([]);
+
+  const saveJob = (j: Job) => {
+    setSavedJobs(prev => prev.some(sj => sj.id === j.id) ? prev : [j, ...prev]);
+  };
+  const unsaveJob = (jobId: string) => {
+    setSavedJobs(prev => prev.filter(sj => sj.id !== jobId));
+  };
 
   const [scraping, setScraping] = useState(false);
   
@@ -668,7 +676,7 @@ export default function App() {
                   <a className="section-link">View all →</a>
                 </div>
                 <div className="scroll-row">
-                  {jobs.length === 0 ? (
+                  {jobs.length === 0 && savedJobs.length === 0 ? (
                     <div style={{
                       padding: '40px 20px', color: 'var(--ink-tertiary)',
                       fontSize: 13, textAlign: 'center',
@@ -676,9 +684,11 @@ export default function App() {
                       No recommendations yet — connect your profile to get started.
                     </div>
                   ) : (
-                    jobs.map((job) => (
+                    [...savedJobs, ...jobs.filter(j => !savedJobs.some(sj => sj.id === j.id))].map((job) => {
+                      const isSaved = savedJobs.some(sj => sj.id === job.id);
+                      return (
                       <div className="rec-card" key={job.id} onClick={() => setSelectedJob(job)}>
-                        <div className="rec-match">{job.relevanceScore > 0 ? `${job.relevanceScore}% match` : job.source}</div>
+                        <div className="rec-match">{isSaved ? 'Saved' : job.relevanceScore > 0 ? `${job.relevanceScore}% match` : job.source}</div>
                         <div className="rec-company">{job.company}</div>
                         <div className="rec-role">{job.title}</div>
                         <div className="tags">
@@ -691,10 +701,35 @@ export default function App() {
                             onClick={e => e.stopPropagation()}>
                             Quick Apply
                           </a>
-                          <button className="save-btn">Save ♡</button>
+                          <button
+                            className="save-btn"
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (isSaved) {
+                                unsaveJob(job.id);
+                              } else {
+                                saveJob(job);
+                                setRemovedJobIds(prev => [...prev, job.id]);
+                                api.post('/jobs/capture', {
+                                  title: job.title,
+                                  company: job.company,
+                                  url: job.url,
+                                  description: job.description,
+                                  location: job.location?.displayName,
+                                  remote: job.remote,
+                                  employmentType: job.employmentType,
+                                  postedAt: job.postedAt,
+                                  tags: job.tags,
+                                }).catch(err => console.warn('Failed to save job:', err));
+                              }
+                            }}
+                          >
+                            {isSaved ? 'Saved ♥' : 'Save ♡'}
+                          </button>
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -714,6 +749,7 @@ export default function App() {
           }).catch(err => console.warn('Failed to dismiss job:', err));
         }}
         onSave={(j) => {
+          saveJob(j);
           setRemovedJobIds(prev => [...prev, j.id]);
           api.post('/jobs/capture', {
             title: j.title,
@@ -728,6 +764,8 @@ export default function App() {
           }).catch(err => console.warn('Failed to save job:', err));
         }}
         onTailor={(j) => { setTailorJob(j); setActive('Resume Builder'); setSelectedJob(null); }}
+        onMoreLikeThis={() => { /* TODO: wire up recommendation tuning */ }}
+        onLessLikeThis={() => { /* TODO: wire up recommendation tuning */ }}
       />
     </>
   </AuthWrapper>  
