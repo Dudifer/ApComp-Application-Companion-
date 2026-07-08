@@ -141,8 +141,8 @@ ${answerSummary}
 
 Return ONLY updated JSON with two keys:
 {
-  "skills": [...updated full skills array...],
-  "roles": [...updated full roles array with technologies filled in...]
+  "skills": [...updated full skills json array...],
+  "roles": [...updated full roles json array...]]
 }`;
 
     try {

@@ -26,7 +26,10 @@ interface JobDetailPanelProps {
   onClose: () => void;
   onDismiss: (job: Job) => void;
   onSave: (job: Job) => void;
-  onTailor: (job: Job) => void;  
+  onTailor: (job: Job) => void;
+  /** Placeholder hooks for future recommendation-tuning feature. No-op if omitted. */
+  onMoreLikeThis?: (job: Job) => void;
+  onLessLikeThis?: (job: Job) => void;
 }
 
 function formatSalary(job: Job): string {
@@ -125,7 +128,7 @@ function ConfidenceBar({ value }: { value: number }) {
   );
 }
 
-export function JobDetailPanel({ job, onClose, onDismiss, onSave, onTailor}: JobDetailPanelProps) {
+export function JobDetailPanel({ job, onClose, onDismiss, onSave, onTailor, onMoreLikeThis, onLessLikeThis }: JobDetailPanelProps) {
   const [contacts, setContacts] = useState<ContactResult | null>(null);
   const [loadingContacts, setLoadingContacts] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);
@@ -545,6 +548,30 @@ export function JobDetailPanel({ job, onClose, onDismiss, onSave, onTailor}: Job
           >
             Apply now →
           </a>
+          <button
+            onClick={() => onMoreLikeThis?.(job)}
+            title="More like this"
+            aria-label="More like this"
+            style={{
+              padding: '11px 14px', background: 'white', border: '1px solid var(--border)',
+              borderRadius: 8, fontSize: 15, color: 'var(--ink-secondary)',
+              cursor: 'pointer', transition: 'background 0.15s',
+            }}
+          >
+            👍
+          </button>
+          <button
+            onClick={() => onLessLikeThis?.(job)}
+            title="Less like this"
+            aria-label="Less like this"
+            style={{
+              padding: '11px 14px', background: 'white', border: '1px solid var(--border)',
+              borderRadius: 8, fontSize: 15, color: 'var(--ink-secondary)',
+              cursor: 'pointer', transition: 'background 0.15s',
+            }}
+          >
+            👎
+          </button>
           <button
             onClick={() => { onSave(job); onClose(); }}
             style={{
