@@ -8,11 +8,12 @@ import ResumeBuilderPage from './pages/ResumeBuilderPage';
 import { useJobs } from './hooks/useJobs';
 import JobSearchPage from './pages/JobSearchPage';
 import ResumePage from './pages/ResumePage';
+import RecLabPage from './pages/RecLabPage';
 import { AuthWrapper } from './auth/AuthWrapper';
 import { useApi } from './lib/api';
 
-// const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Resume Demo", "Job Search", "Practice"];
-const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Search", "Practice"];
+// const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Resume Demo", "Job Search", "Rec Lab"];
+const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Search", "Rec Lab"];
 
 
 
@@ -548,6 +549,8 @@ export default function App() {
             <ResumeBuilderPage initialJob={tailorJob} onNavigate={(page) => setActive(page)}/>
           ) : active === 'Job Search' ? (
             <JobSearchPage onJobSelect={job => setSelectedJob(job)} removedJobIds={removedJobIds} />
+          ) : active === 'Rec Lab' ? (
+            <RecLabPage />
           ) : (//active === 'Resume Demo' ? (
           //   <ResumeDemoPage />
           // ) : (

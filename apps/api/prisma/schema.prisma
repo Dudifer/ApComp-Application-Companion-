@@ -25,6 +25,7 @@ model User {
   jobFeedWeights JobFeedWeights?
   userSettings   UserSettings?
   gmailToken     GmailToken?
+  jobInteractions JobInteraction[]
 
   @@map("users")
 }
@@ -55,6 +56,16 @@ model CvProfile {
   education    Json    @default("[]")
   gapQuestions Json    @default("[]")
   isComplete   Boolean @default(false)
+
+  // ── Recommendation embeddings (Rec Lab / embedding-based matching) ──────
+  // Computed from CV title history, role/project descriptions, and skills
+  // respectively. Free, local model (Xenova/all-MiniLM-L6-v2, 384 dims) via
+  // EmbeddingService — see apps/api/src/modules/rec-lab/embedding.service.ts.
+  titleEmbedding       Float[] @default([])
+  descriptionEmbedding Float[] @default([])
+  skillsEmbedding      Float[] @default([])
+  embeddingSourceHash  String? // hash of the text last embedded, so we skip recompute when nothing changed
+  embeddingUpdatedAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -134,6 +145,84 @@ model JobFeedWeights {
   updatedAt DateTime @updatedAt
 
   @@map("job_feed_weights")
+}
+
+// Cached embeddings for a job listing, keyed by the app's composite Job.id
+// (e.g. "openjobdata-abc123", "manual-<hash>"). Recomputed lazily whenever
+// `sourceHash` no longer matches the job's current title+description+tags —
+// jobs are otherwise immutable once fetched, so this is cheap to keep fresh.
+model JobEmbedding {
+  id     String @id @default(cuid())
+  jobId  String @unique // composite Job.id
+  source String
+  externalId String
+
+  title       String
+  company     String?
+
+  titleEmbedding       Float[]
+  descriptionEmbedding Float[]
+  skillsEmbedding      Float[]
+
+  sourceHash String // hash of title+description+tags, to detect staleness
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([source, externalId])
+  @@map("job_embeddings")
+}
+
+enum InteractionType {
+  VIEWED          // shown in a recommendation/search batch, no action taken (yet)
+  CLICKED         // opened the job detail panel
+  SAVED
+  APPLIED
+  MORE_LIKE_THIS
+  IGNORED         // shown repeatedly with no positive interaction
+  DISMISSED
+  LESS_LIKE_THIS
+}
+
+enum InteractionContext {
+  RECOMMENDED
+  SEARCH
+}
+
+// Every interaction a user has with a job, recommended or searched. This is
+// the ledger the Rec Lab (and eventually the live feed) computes job scores
+// from — scores are derived on read, not cached, so editing/removing a past
+// interaction ("replay") immediately changes future ranking with no cache to
+// invalidate. See rec-lab/scoring.ts for the weighting + decay logic.
+model JobInteraction {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  jobId      String // composite Job.id
+  source     String
+  externalId String
+
+  // Denormalized for display in the Rec Lab / timeline without a join back
+  // to a job blob that may have expired out of SavedJob.
+  jobTitle   String
+  jobCompany String?
+
+  type    InteractionType
+  context InteractionContext @default(RECOMMENDED)
+
+  // Weight applied at the time of the interaction (from the config in
+  // scoring.ts). Stored so historical events don't silently reshuffle if the
+  // weight table is retuned later — recompute explicitly if you want that.
+  weight Float
+
+  note String? // free-form, e.g. "replayed: was DISMISSED, changed to SAVED"
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, jobId])
+  @@index([userId, createdAt])
+  @@map("job_interactions")
 }
 
 enum ApplicationStatus {

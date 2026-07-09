@@ -50,6 +50,9 @@ env.production
 .temp
 .tmp
 
+# sql backups 
+*.sql
+
 # Runtime data
 pids
 *.pid

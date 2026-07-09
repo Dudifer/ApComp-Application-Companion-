@@ -5,10 +5,11 @@ import { JobsModule } from './modules/jobs/jobs.module';
 import { ResumeModule } from './modules/resume/resume.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 import { ApplicationsModule } from './modules/applications/applications.module';
+import { RecLabModule } from './modules/rec-lab/rec-lab.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
-  imports: [AuthModule, PrismaModule, JobsModule, ResumeModule, ApplicationsModule],
+  imports: [AuthModule, PrismaModule, JobsModule, ResumeModule, ApplicationsModule, RecLabModule],
   controllers: [AppController],
   providers: [AppService],
 })
