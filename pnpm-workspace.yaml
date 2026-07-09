@@ -9,4 +9,5 @@ allowBuilds:
   duckdb: true
   esbuild: true
   prisma: true
+  sharp: true
   unrs-resolver: true
