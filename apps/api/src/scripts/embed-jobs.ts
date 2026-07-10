@@ -1,14 +1,19 @@
 /**
  * embed-jobs.ts
  *
- * Backfills JobEmbedding rows for job_catalog entries. Skips anything
- * already embedded whose title/description/tags haven't changed, so it's
- * safe to Ctrl+C and resume, or just re-run periodically as a catch-all.
+ * Backfills JobEmbedding rows for job_catalog entries. Safe to Ctrl+C and
+ * resume, or re-run periodically as a catch-all — including across totally
+ * separate process invocations (see embed-jobs-loop.ts), because the
+ * default (non---force) mode asks the database directly for rows that don't
+ * have a JobEmbedding yet, rather than paginating through everything and
+ * skipping client-side. That distinction matters: paginating-and-skipping
+ * only advances within a single process's lifetime, so a wrapper that
+ * restarts this as a fresh process every N rows would otherwise re-fetch
+ * the same already-done rows forever and never make progress.
  *
  * This uses the local embedding model (Xenova/all-MiniLM-L6-v2, CPU) — for
  * a full catalog (hundreds of thousands of rows) expect this to take hours,
- * not minutes. Run it somewhere it can sit in the background; it's fully
- * resumable, so there's no harm stopping and restarting later.
+ * not minutes. Run it somewhere it can sit in the background.
  *
  * Usage:
  *   pnpm jobs:embed                  # active jobs only, skip already-embedded
@@ -19,7 +24,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '../../generated/prisma';
 import { EmbeddingService } from '../modules/rec-lab/embedding.service';
-import { embedCatalogRows } from '../modules/rec-lab/catalog-embedding';
+import { embedCatalogRows, CatalogRow } from '../modules/rec-lab/catalog-embedding';
 
 const args = process.argv.slice(2);
 const FORCE = args.includes('--force');
@@ -33,6 +38,53 @@ const PAGE_SIZE = 200;
 const prisma = new PrismaClient();
 const embeddings = new EmbeddingService();
 
+// ── Row fetching ─────────────────────────────────────────────────────────
+//
+// Non-force mode: ask Postgres directly for job_catalog rows that don't
+// have a matching job_embeddings row yet (anti-join), so every call — even
+// from a brand-new process with no memory of prior runs — naturally picks
+// up wherever the backfill actually left off.
+//
+// Force mode: plain pagination over everything matching the status filter,
+// since the whole point is to revisit rows that already have an embedding.
+
+async function countUnembedded(status: string): Promise<number> {
+  const rows = status === 'all'
+    ? await prisma.$queryRaw<{ count: bigint }[]>`
+        SELECT COUNT(*)::bigint AS count FROM job_catalog jc
+        WHERE NOT EXISTS (SELECT 1 FROM job_embeddings je WHERE je."jobId" = 'openjobdata-' || jc.id)
+      `
+    : await prisma.$queryRaw<{ count: bigint }[]>`
+        SELECT COUNT(*)::bigint AS count FROM job_catalog jc
+        WHERE jc.status = ${status}
+          AND NOT EXISTS (SELECT 1 FROM job_embeddings je WHERE je."jobId" = 'openjobdata-' || jc.id)
+      `;
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function fetchUnembeddedBatch(status: string, take: number): Promise<CatalogRow[]> {
+  return status === 'all'
+    ? prisma.$queryRaw<CatalogRow[]>`
+        SELECT jc.id, jc.title, jc.company, jc."locationDisplay", jc.city, jc.state, jc.country,
+               jc."isRemote", jc."employmentType", jc.department, jc."workplaceType",
+               jc.description, jc."applyUrl", jc."postedAt"
+        FROM job_catalog jc
+        WHERE NOT EXISTS (SELECT 1 FROM job_embeddings je WHERE je."jobId" = 'openjobdata-' || jc.id)
+        ORDER BY jc.id ASC
+        LIMIT ${take}
+      `
+    : prisma.$queryRaw<CatalogRow[]>`
+        SELECT jc.id, jc.title, jc.company, jc."locationDisplay", jc.city, jc.state, jc.country,
+               jc."isRemote", jc."employmentType", jc.department, jc."workplaceType",
+               jc.description, jc."applyUrl", jc."postedAt"
+        FROM job_catalog jc
+        WHERE jc.status = ${status}
+          AND NOT EXISTS (SELECT 1 FROM job_embeddings je WHERE je."jobId" = 'openjobdata-' || jc.id)
+        ORDER BY jc.id ASC
+        LIMIT ${take}
+      `;
+}
+
 async function main() {
   console.log(
     `\nApComp Job Embedding Backfill — status=${STATUS}` +
@@ -43,9 +95,16 @@ async function main() {
   await prisma.$connect();
 
   const where = STATUS === 'all' ? {} : { status: STATUS };
-  const total = await prisma.jobCatalog.count({ where });
-  const targetCount = LIMIT ? Math.min(LIMIT, total) : total;
-  console.log(`${total.toLocaleString()} rows match (processing ${targetCount.toLocaleString()})\n`);
+  const matchingTotal = FORCE
+    ? await prisma.jobCatalog.count({ where })
+    : await countUnembedded(STATUS);
+  const targetCount = LIMIT ? Math.min(LIMIT, matchingTotal) : matchingTotal;
+
+  console.log(
+    FORCE
+      ? `${matchingTotal.toLocaleString()} rows match (processing ${targetCount.toLocaleString()})\n`
+      : `${matchingTotal.toLocaleString()} rows still need embedding (processing ${targetCount.toLocaleString()})\n`,
+  );
 
   if (!targetCount) {
     console.log('Nothing to do.\n');
@@ -69,14 +128,18 @@ async function main() {
 
   while (processed < targetCount) {
     const take = Math.min(PAGE_SIZE, targetCount - processed);
-    const rows = await prisma.jobCatalog.findMany({
-      where,
-      take,
-      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
-      orderBy: { id: 'asc' },
-    });
+
+    const rows = FORCE
+      ? await prisma.jobCatalog.findMany({
+          where,
+          take,
+          ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+          orderBy: { id: 'asc' },
+        })
+      : await fetchUnembeddedBatch(STATUS, take);
+
     if (!rows.length) break;
-    cursor = rows[rows.length - 1].id;
+    if (FORCE) cursor = rows[rows.length - 1].id;
 
     const result = await embedCatalogRows(prisma, embeddings, rows, { force: FORCE });
     embedded += result.embedded;
@@ -92,6 +155,11 @@ async function main() {
       `${embedded.toLocaleString()} embedded, ${skipped.toLocaleString()} skipped, ${failed.toLocaleString()} failed ` +
       `(${rate.toFixed(1)}/s, ~${Math.floor(etaSec / 60)}m remaining)   `,
     );
+
+    // Non-force mode has no cursor to advance — if a batch comes back with
+    // nothing newly embedded (e.g. every row in it failed), stop instead of
+    // looping forever re-fetching the same still-unembedded rows.
+    if (!FORCE && result.embedded === 0) break;
   }
 
   console.log('\n' + '─'.repeat(60));
