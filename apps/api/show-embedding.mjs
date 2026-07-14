@@ -58,7 +58,7 @@ const cv = {
 
 const jobs = [
   {
-    title: 'Junior Programmer',
+    title: 'Software Engineer',
     department: 'Engineering',
     workplaceType: 'Remote',
     description: '<p>Build and scale our Node.js APIs. Own services end to end.</p>',
