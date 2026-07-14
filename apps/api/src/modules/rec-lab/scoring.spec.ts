@@ -1,6 +1,11 @@
 import {
   INTERACTION_WEIGHTS,
+  NEGATIVE_PROPAGATION_TYPES,
+  SUPPRESSION_TYPES,
+  SUPPRESSED_SCORE_FLOOR,
+  DISLIKE_PENALTY_WEIGHT,
   aggregateInteractionScore,
+  applyMostRecentSuppression,
   cosineSimilarity,
   toPercent,
   computeCvSimilarity,
@@ -92,8 +97,10 @@ describe('normalizeInteractionScore', () => {
 });
 
 describe('computeCvSimilarity / compositeEmbedding', () => {
-  const perfect: FieldEmbeddings = { title: [1, 0], description: [1, 0], skills: [1, 0] };
-  const opposite: FieldEmbeddings = { title: [-1, 0], description: [-1, 0], skills: [-1, 0] };
+  // Skills text is folded into `description` (see text.ts) — only two
+  // fields get embedded and compared now, title and description.
+  const perfect: FieldEmbeddings = { title: [1, 0], description: [1, 0] };
+  const opposite: FieldEmbeddings = { title: [-1, 0], description: [-1, 0] };
 
   it('scores a perfect match at 100 combined', () => {
     expect(computeCvSimilarity(perfect, perfect).combined).toBe(100);
@@ -101,20 +108,20 @@ describe('computeCvSimilarity / compositeEmbedding', () => {
   it('scores a total mismatch at 0 combined', () => {
     expect(computeCvSimilarity(perfect, opposite).combined).toBe(0);
   });
-  it('weights description most heavily, then title, then skills', () => {
-    // Only the title field matches; description/skills are orthogonal (50%).
-    const partial: FieldEmbeddings = { title: [1, 0], description: [0, 1], skills: [0, 1] };
+  it('weights description (which includes skills text) more heavily than title', () => {
+    // Only the title field matches; description is orthogonal (50%).
+    const partial: FieldEmbeddings = { title: [1, 0], description: [0, 1] };
     const onlyTitleMatches = computeCvSimilarity(perfect, partial);
-    // 100*0.35 + 50*0.4 + 50*0.25 = 35 + 20 + 12.5 = 67.5 -> rounds to 68 or 67
+    // 100*0.35 + 50*0.65 = 35 + 32.5 = 67.5 -> rounds to 68 or 67
     expect(onlyTitleMatches.combined).toBeGreaterThanOrEqual(66);
     expect(onlyTitleMatches.combined).toBeLessThanOrEqual(69);
   });
-  it('composite embedding averages the three fields', () => {
+  it('composite embedding averages the fields', () => {
     const composite = compositeEmbedding(perfect);
     expect(composite).toEqual([1, 0]);
   });
   it('composite embedding is empty when no fields are populated', () => {
-    expect(compositeEmbedding({ title: [], description: [], skills: [] })).toEqual([]);
+    expect(compositeEmbedding({ title: [], description: [] })).toEqual([]);
   });
 });
 
@@ -134,12 +141,64 @@ describe('similarityToLikedJobs', () => {
   });
 });
 
+describe('applyMostRecentSuppression', () => {
+  it('floors the score when the most recent interaction is DISMISSED', () => {
+    const interactions = [
+      { weight: 8, createdAt: new Date('2026-01-01'), type: 'APPLIED' as const },
+      { weight: -6, createdAt: new Date('2026-01-05'), type: 'DISMISSED' as const },
+    ];
+    const raw = 9; // e.g. +8 applied, -6 dismissed, +5 saved earlier = net +9 undiluted
+    expect(applyMostRecentSuppression(interactions, raw)).toBe(SUPPRESSED_SCORE_FLOOR);
+  });
+
+  it('floors the score when the most recent interaction is LESS_LIKE_THIS', () => {
+    const interactions = [
+      { weight: 5, createdAt: new Date('2026-01-01'), type: 'SAVED' as const },
+      { weight: -8, createdAt: new Date('2026-01-05'), type: 'LESS_LIKE_THIS' as const },
+    ];
+    expect(applyMostRecentSuppression(interactions, 3)).toBe(SUPPRESSED_SCORE_FLOOR);
+  });
+
+  it('leaves the score untouched when the most recent interaction is positive', () => {
+    const interactions = [
+      { weight: -6, createdAt: new Date('2026-01-01'), type: 'DISMISSED' as const },
+      { weight: 8, createdAt: new Date('2026-01-05'), type: 'APPLIED' as const },
+    ];
+    expect(applyMostRecentSuppression(interactions, 2)).toBe(2);
+  });
+
+  it('is order-independent — finds the true most recent regardless of array order', () => {
+    const interactions = [
+      { weight: -8, createdAt: new Date('2026-01-05'), type: 'LESS_LIKE_THIS' as const },
+      { weight: 8, createdAt: new Date('2026-01-01'), type: 'APPLIED' as const },
+    ];
+    // Same events as the DISMISSED test above but listed newest-first — should still suppress.
+    expect(applyMostRecentSuppression(interactions, 0)).toBe(SUPPRESSED_SCORE_FLOOR);
+  });
+
+  it('never raises a score that was already below the floor', () => {
+    const interactions = [{ weight: -8, createdAt: new Date(), type: 'LESS_LIKE_THIS' as const }];
+    expect(applyMostRecentSuppression(interactions, -50)).toBe(-50);
+  });
+
+  it('returns the raw score unchanged for an empty interaction list', () => {
+    expect(applyMostRecentSuppression([], 42)).toBe(42);
+  });
+
+  it('DISMISSED and LESS_LIKE_THIS are the only suppression types, and LESS_LIKE_THIS is the only propagation type', () => {
+    expect(SUPPRESSION_TYPES).toEqual(expect.arrayContaining(['DISMISSED', 'LESS_LIKE_THIS']));
+    expect(SUPPRESSION_TYPES).toHaveLength(2);
+    expect(NEGATIVE_PROPAGATION_TYPES).toEqual(['LESS_LIKE_THIS']);
+  });
+});
+
 describe('rankCandidates', () => {
   function makeCandidates(n: number): Candidate<{ id: string }>[] {
     return Array.from({ length: n }, (_, i) => ({
       job: { id: `job-${i}` },
-      cvSimilarity: { title: 0, description: 0, skills: 0, combined: 100 - i * 4 },
+      cvSimilarity: { title: 0, description: 0, combined: 100 - i * 4 },
       likedSimilarity: 50,
+      dislikedSimilarity: 0,
       interactionScoreRaw: 0,
       interactionCount: 0,
     }));
@@ -184,5 +243,51 @@ describe('rankCandidates', () => {
   it('respects the minNoveltyScore floor — no novelty picks if nothing clears it', () => {
     const ranked = rankCandidates(makeCandidates(20), { limit: 10, noveltyRate: 0.2, minNoveltyScore: 1000 });
     expect(ranked.filter(r => r.novelty)).toHaveLength(0);
+  });
+
+  it('dislikedSimilarity of 0 leaves a candidate unaffected', () => {
+    const [withZeroDislike] = rankCandidates([{
+      job: { id: 'a' },
+      cvSimilarity: { title: 0, description: 0, combined: 80 },
+      likedSimilarity: 0,
+      dislikedSimilarity: 0,
+      interactionScoreRaw: 0,
+      interactionCount: 0,
+    }]);
+    // 80 * 0.45 + 0 * 0.25 + 50(neutral) * 0.3 = 36 + 0 + 15 = 51
+    expect(withZeroDislike.finalScore).toBe(51);
+  });
+
+  it('docks a candidate that resembles something the user said less-like-this to', () => {
+    const base: Omit<Candidate<{ id: string }>, 'dislikedSimilarity'> = {
+      job: { id: 'a' },
+      cvSimilarity: { title: 0, description: 0, combined: 80 },
+      likedSimilarity: 0,
+      interactionScoreRaw: 0,
+      interactionCount: 0,
+    };
+    const [noDislike] = rankCandidates([{ ...base, dislikedSimilarity: 0 }]);
+    const [fullyDisliked] = rankCandidates([{ ...base, dislikedSimilarity: 100 }]);
+    expect(fullyDisliked.finalScore).toBeLessThan(noDislike.finalScore);
+    expect(noDislike.finalScore - fullyDisliked.finalScore).toBe(Math.round(100 * DISLIKE_PENALTY_WEIGHT));
+  });
+
+  it('two otherwise-identical candidates rank by dislikedSimilarity when everything else ties', () => {
+    const ranked = rankCandidates([
+      {
+        job: { id: 'resembles-disliked' },
+        cvSimilarity: { title: 0, description: 0, combined: 80 },
+        likedSimilarity: 50, dislikedSimilarity: 90,
+        interactionScoreRaw: 0, interactionCount: 0,
+      },
+      {
+        job: { id: 'clean' },
+        cvSimilarity: { title: 0, description: 0, combined: 80 },
+        likedSimilarity: 50, dislikedSimilarity: 0,
+        interactionScoreRaw: 0, interactionCount: 0,
+      },
+    ], { noveltyRate: 0 });
+    expect(ranked[0].job.id).toBe('clean');
+    expect(ranked[1].job.id).toBe('resembles-disliked');
   });
 });

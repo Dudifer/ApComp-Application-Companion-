@@ -58,11 +58,14 @@ model CvProfile {
   isComplete   Boolean @default(false)
 
   // ── Recommendation embeddings (Rec Lab / embedding-based matching) ──────
-  // Computed from CV title history, role/project descriptions, and skills
-  // respectively. Free, local model (Xenova/all-MiniLM-L6-v2, 384 dims) via
-  // EmbeddingService — see apps/api/src/modules/rec-lab/embedding.service.ts.
+  // Computed from CV title history and role/project descriptions (skills
+  // text is folded into the description text, see text.ts). Free, local
+  // model (Xenova/all-MiniLM-L6-v2, 384 dims) via EmbeddingService — see
+  // apps/api/src/modules/rec-lab/embedding.service.ts.
   titleEmbedding       Float[] @default([])
   descriptionEmbedding Float[] @default([])
+  // Deprecated — always [] now. Left in place to avoid another migration on
+  // top of the existing drift history; safe to drop in a future migration.
   skillsEmbedding      Float[] @default([])
   embeddingSourceHash  String? // hash of the text last embedded, so we skip recompute when nothing changed
   embeddingUpdatedAt   DateTime?
@@ -149,7 +152,7 @@ model JobFeedWeights {
 
 // Cached embeddings for a job listing, keyed by the app's composite Job.id
 // (e.g. "openjobdata-abc123", "manual-<hash>"). Recomputed lazily whenever
-// `sourceHash` no longer matches the job's current title+description+tags —
+// `sourceHash` no longer matches the job's current title+description —
 // jobs are otherwise immutable once fetched, so this is cheap to keep fresh.
 model JobEmbedding {
   id     String @id @default(cuid())
@@ -162,9 +165,12 @@ model JobEmbedding {
 
   titleEmbedding       Float[]
   descriptionEmbedding Float[]
-  skillsEmbedding      Float[]
+  // Deprecated — skills text is now folded into descriptionEmbedding (see
+  // text.ts). Left in place (always []) to avoid another migration on top
+  // of the existing drift history; safe to drop in a future migration.
+  skillsEmbedding      Float[] @default([])
 
-  sourceHash String // hash of title+description+tags, to detect staleness
+  sourceHash String // hash of title+description, to detect staleness
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

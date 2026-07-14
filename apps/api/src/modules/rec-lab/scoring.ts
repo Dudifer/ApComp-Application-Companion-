@@ -33,11 +33,37 @@ export function weightFor(type: InteractionType): number {
 /** "Positive" interaction types count a job as one of the user's liked jobs for similarity purposes. */
 export const POSITIVE_INTERACTION_TYPES: InteractionType[] = ['SAVED', 'APPLIED', 'MORE_LIKE_THIS'];
 
+/**
+ * Interaction types that propagate a *negative* signal to similar jobs, not
+ * just to the exact job itself. Deliberately narrower than "any negative
+ * interaction" — DISMISSED means "not this one" (the job may well have been
+ * genuinely liked first; dismissing it shouldn't imply its type is
+ * unwanted), whereas LESS_LIKE_THIS is an explicit, deliberate request to
+ * see less of *this kind of thing* — that's the entire point of the button.
+ */
+export const NEGATIVE_PROPAGATION_TYPES: InteractionType[] = ['LESS_LIKE_THIS'];
+
+/**
+ * Interaction types where, if it's the *most recent* interaction on a job,
+ * should suppress that job's own score regardless of any positive history
+ * before it — "I dismissed it" means "stop showing me this," not "subtract
+ * a few points from an inflated total." Scoped to the job itself only; see
+ * NEGATIVE_PROPAGATION_TYPES for which of these also affects similar jobs.
+ */
+export const SUPPRESSION_TYPES: InteractionType[] = ['DISMISSED', 'LESS_LIKE_THIS'];
+
+/** Matches normalizeInteractionScore's clamp floor, so a suppressed job's interaction component normalizes to 0. */
+export const SUPPRESSED_SCORE_FLOOR = -20;
+
 const DECAY_HALF_LIFE_DAYS = 30;
 
 export interface WeightedInteraction {
   weight: number;
   createdAt: string | Date;
+}
+
+export interface TypedInteraction extends WeightedInteraction {
+  type: InteractionType;
 }
 
 /**
@@ -56,6 +82,27 @@ export function aggregateInteractionScore(
     const decayFactor = Math.pow(0.5, ageDays / DECAY_HALF_LIFE_DAYS);
     return sum + i.weight * decayFactor;
   }, 0);
+}
+
+/**
+ * If the most recent interaction on a job is a suppression type (dismiss /
+ * less-like-this), floor that job's own raw score regardless of how much
+ * positive history came before it — a later dismiss should have real teeth,
+ * not just contribute one more term to a running sum a few earlier clicks
+ * can outweigh.
+ */
+export function applyMostRecentSuppression(
+  interactions: TypedInteraction[],
+  rawScore: number,
+): number {
+  if (!interactions.length) return rawScore;
+  const mostRecent = [...interactions].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  )[0];
+  if (SUPPRESSION_TYPES.includes(mostRecent.type)) {
+    return Math.min(rawScore, SUPPRESSED_SCORE_FLOOR);
+  }
+  return rawScore;
 }
 
 // ── Vector similarity ────────────────────────────────────────────────────────
@@ -81,31 +128,33 @@ export function toPercent(cosine: number): number {
 export interface FieldEmbeddings {
   title: number[];
   description: number[];
-  skills: number[];
 }
 
-/** How much each field contributes to the blended "CV similarity" score. */
-export const CV_SIMILARITY_WEIGHTS = { title: 0.35, description: 0.4, skills: 0.25 };
+/**
+ * How much each field contributes to the blended "CV similarity" score.
+ * Previously title/description/skills at 0.35/0.4/0.25 — skills text is now
+ * folded into the description field itself (see text.ts), so its old 0.25
+ * share rolls into description's weight (0.4 + 0.25 = 0.65).
+ */
+export const CV_SIMILARITY_WEIGHTS = { title: 0.35, description: 0.65 };
 
 export function computeCvSimilarity(cv: FieldEmbeddings, job: FieldEmbeddings): SimilarityBreakdown {
   const title = toPercent(cosineSimilarity(cv.title, job.title));
   const description = toPercent(cosineSimilarity(cv.description, job.description));
-  const skills = toPercent(cosineSimilarity(cv.skills, job.skills));
   const combined = Math.round(
     title * CV_SIMILARITY_WEIGHTS.title +
-    description * CV_SIMILARITY_WEIGHTS.description +
-    skills * CV_SIMILARITY_WEIGHTS.skills,
+    description * CV_SIMILARITY_WEIGHTS.description,
   );
-  return { title, description, skills, combined };
+  return { title, description, combined };
 }
 
-/** Average of the three field embeddings — a single vector representing "this job", used for job-to-job similarity. */
+/** Average of the field embeddings — a single vector representing "this job", used for job-to-job similarity. */
 export function compositeEmbedding(fields: FieldEmbeddings): number[] {
-  const len = fields.title?.length || fields.description?.length || fields.skills?.length || 0;
+  const len = fields.title?.length || fields.description?.length || 0;
   if (!len) return [];
   const sum = new Array(len).fill(0);
   let n = 0;
-  for (const v of [fields.title, fields.description, fields.skills]) {
+  for (const v of [fields.title, fields.description]) {
     if (v?.length === len) {
       for (let i = 0; i < len; i++) sum[i] += v[i];
       n++;
@@ -145,6 +194,15 @@ export function similarityToLikedJobs(
 /** How much each signal contributes to the final rank. */
 export const RANK_WEIGHTS = { cvSimilarity: 0.45, likedSimilarity: 0.25, interaction: 0.3 };
 
+/**
+ * How hard a job gets docked for resembling something the user explicitly
+ * said "less like this" to. Applied as a straight subtraction after the
+ * weighted blend above, not folded into RANK_WEIGHTS — that way it's exactly
+ * 0 for anyone who's never used the button, rather than requiring the other
+ * weights to be rebalanced to make room for a term that's usually inactive.
+ */
+export const DISLIKE_PENALTY_WEIGHT = 0.4;
+
 /** Default share of results that are "novelty" picks rather than pure top-score. */
 export const DEFAULT_NOVELTY_RATE = 0.2;
 
@@ -159,6 +217,9 @@ export interface Candidate<J> {
   cvSimilarity: SimilarityBreakdown;
   likedSimilarity: number;
   mostSimilarLikedJob?: LikedJobMatch;
+  /** How similar this job is to something the user hit "less like this" on. 0 if they never have. */
+  dislikedSimilarity: number;
+  mostSimilarDislikedJob?: LikedJobMatch;
   interactionScoreRaw: number;
   interactionCount: number;
 }
@@ -192,11 +253,11 @@ export function rankCandidates<J>(
 
   const scored: RankedCandidate<J>[] = candidates.map(c => {
     const interactionScore = normalizeInteractionScore(c.interactionScoreRaw);
-    const finalScore = Math.round(
+    const blended =
       c.cvSimilarity.combined * RANK_WEIGHTS.cvSimilarity +
       c.likedSimilarity * RANK_WEIGHTS.likedSimilarity +
-      interactionScore * RANK_WEIGHTS.interaction,
-    );
+      interactionScore * RANK_WEIGHTS.interaction;
+    const finalScore = Math.round(blended - c.dislikedSimilarity * DISLIKE_PENALTY_WEIGHT);
     return { ...c, interactionScore, finalScore, novelty: false };
   });
 

@@ -64,9 +64,9 @@ export interface EmbedResult {
 
 /**
  * Embeds a batch of job_catalog rows into JobEmbedding, skipping any whose
- * title+description+tags text hasn't changed since it was last embedded
- * (same sourceHash check RecLabService uses at request time). Safe to
- * re-run — interrupt it any time, the next run just picks up where it left off.
+ * title+description text hasn't changed since it was last embedded (same
+ * sourceHash check RecLabService uses at request time). Safe to re-run —
+ * interrupt it any time, the next run just picks up where it left off.
  */
 export async function embedCatalogRows(
   prisma: PrismaClient,
@@ -110,14 +110,13 @@ export async function embedCatalogRows(
   for (let i = 0; i < toEmbed.length; i += EMBED_CHUNK) {
     const chunk = toEmbed.slice(i, i + EMBED_CHUNK);
     try {
-      const flatTexts = chunk.flatMap(c => [c.texts.title, c.texts.description, c.texts.skills]);
+      const flatTexts = chunk.flatMap(c => [c.texts.title, c.texts.description]);
       const flatVectors = await embeddings.embedBatch(flatTexts);
 
       await prisma.$transaction(
         chunk.map((c, idx) => {
-          const title = flatVectors[idx * 3];
-          const description = flatVectors[idx * 3 + 1];
-          const skills = flatVectors[idx * 3 + 2];
+          const title = flatVectors[idx * 2];
+          const description = flatVectors[idx * 2 + 1];
           return prisma.jobEmbedding.upsert({
             where: { jobId: c.job.id },
             update: {
@@ -125,7 +124,9 @@ export async function embedCatalogRows(
               company: c.job.company,
               titleEmbedding: title,
               descriptionEmbedding: description,
-              skillsEmbedding: skills,
+              // Clear out any stale vector from the old three-field scheme —
+              // skills text is folded into description now (see text.ts).
+              skillsEmbedding: [],
               sourceHash: c.hash,
             },
             create: {
@@ -136,7 +137,6 @@ export async function embedCatalogRows(
               company: c.job.company,
               titleEmbedding: title,
               descriptionEmbedding: description,
-              skillsEmbedding: skills,
               sourceHash: c.hash,
             },
           });

@@ -15,7 +15,9 @@ import { cvProfileToTexts, jobToTexts, hashFieldTexts, FieldTexts } from './text
 import {
   weightFor,
   POSITIVE_INTERACTION_TYPES,
+  NEGATIVE_PROPAGATION_TYPES,
   aggregateInteractionScore,
+  applyMostRecentSuppression,
   computeCvSimilarity,
   compositeEmbedding,
   similarityToLikedJobs,
@@ -59,18 +61,16 @@ export class RecLabService {
     const hasCachedVectors =
       row.embeddingSourceHash === hash &&
       row.titleEmbedding.length > 0 &&
-      row.descriptionEmbedding.length > 0 &&
-      row.skillsEmbedding.length > 0;
+      row.descriptionEmbedding.length > 0;
 
     if (hasCachedVectors) {
-      return { title: row.titleEmbedding, description: row.descriptionEmbedding, skills: row.skillsEmbedding };
+      return { title: row.titleEmbedding, description: row.descriptionEmbedding };
     }
 
     this.logger.log(`Recomputing CV embeddings for user ${userId}`);
-    const [title, description, skills] = await this.embeddings.embedBatch([
+    const [title, description] = await this.embeddings.embedBatch([
       texts.title,
       texts.description,
-      texts.skills,
     ]);
 
     await this.prisma.cvProfile.update({
@@ -78,13 +78,15 @@ export class RecLabService {
       data: {
         titleEmbedding: title,
         descriptionEmbedding: description,
-        skillsEmbedding: skills,
+        // Skills text is folded into `description` now (see text.ts) —
+        // clear out any stale vector from the old three-field scheme.
+        skillsEmbedding: [],
         embeddingSourceHash: hash,
         embeddingUpdatedAt: new Date(),
       },
     });
 
-    return { title, description, skills };
+    return { title, description };
   }
 
   // ── Job embeddings ───────────────────────────────────────────────────────
@@ -108,7 +110,6 @@ export class RecLabService {
         result.set(job.id, {
           title: cached.titleEmbedding,
           description: cached.descriptionEmbedding,
-          skills: cached.skillsEmbedding,
         });
       } else {
         toCompute.push({ job, texts, hash });
@@ -117,16 +118,15 @@ export class RecLabService {
 
     if (toCompute.length) {
       this.logger.log(`Computing embeddings for ${toCompute.length} job(s)`);
-      // One batch call for everything: [title0, desc0, skills0, title1, ...]
-      const flatTexts = toCompute.flatMap(c => [c.texts.title, c.texts.description, c.texts.skills]);
+      // One batch call for everything: [title0, desc0, title1, desc1, ...]
+      const flatTexts = toCompute.flatMap(c => [c.texts.title, c.texts.description]);
       const flatVectors = await this.embeddings.embedBatch(flatTexts);
 
       await this.prisma.$transaction(
         toCompute.map((c, i) => {
-          const title = flatVectors[i * 3];
-          const description = flatVectors[i * 3 + 1];
-          const skills = flatVectors[i * 3 + 2];
-          result.set(c.job.id, { title, description, skills });
+          const title = flatVectors[i * 2];
+          const description = flatVectors[i * 2 + 1];
+          result.set(c.job.id, { title, description });
           return this.prisma.jobEmbedding.upsert({
             where: { jobId: c.job.id },
             update: {
@@ -134,7 +134,9 @@ export class RecLabService {
               company: c.job.company,
               titleEmbedding: title,
               descriptionEmbedding: description,
-              skillsEmbedding: skills,
+              // Skills text is folded into `description` now — clear any
+              // stale vector left from the old three-field scheme.
+              skillsEmbedding: [],
               sourceHash: c.hash,
             },
             create: {
@@ -145,7 +147,6 @@ export class RecLabService {
               company: c.job.company,
               titleEmbedding: title,
               descriptionEmbedding: description,
-              skillsEmbedding: skills,
               sourceHash: c.hash,
             },
           });
@@ -265,6 +266,11 @@ export class RecLabService {
       interactionsByJobId.set(i.jobId, list);
     }
 
+    // Liked jobs propagate a *positive* signal to similar jobs — deliberately
+    // NOT cleared by a later dismiss on the same job. Dismissing a job you
+    // clicked/saved/applied to means "not this one" (maybe you already got
+    // it, maybe it's a duplicate), not "I was wrong to like that kind of
+    // job" — so it keeps counting as a taste signal for similar listings.
     const likedJobIds = [
       ...new Set(
         allInteractions
@@ -272,37 +278,67 @@ export class RecLabService {
           .map(i => i.jobId),
       ),
     ];
-    const likedJobEmbeddingRows = likedJobIds.length
-      ? await this.prisma.jobEmbedding.findMany({ where: { jobId: { in: likedJobIds } } })
-      : [];
-    const likedJobVectors: LikedJobVector[] = likedJobEmbeddingRows.map(row => ({
+
+    // Disliked jobs propagate a *negative* signal — scoped to LESS_LIKE_THIS
+    // only. That button is an explicit, deliberate "show me less of this
+    // kind of thing," unlike DISMISSED which only suppresses the exact job
+    // (handled below via applyMostRecentSuppression).
+    const dislikedJobIds = [
+      ...new Set(
+        allInteractions
+          .filter(i => NEGATIVE_PROPAGATION_TYPES.includes(i.type as any))
+          .map(i => i.jobId),
+      ),
+    ];
+
+    const [likedJobEmbeddingRows, dislikedJobEmbeddingRows] = await Promise.all([
+      likedJobIds.length
+        ? this.prisma.jobEmbedding.findMany({ where: { jobId: { in: likedJobIds } } })
+        : Promise.resolve([]),
+      dislikedJobIds.length
+        ? this.prisma.jobEmbedding.findMany({ where: { jobId: { in: dislikedJobIds } } })
+        : Promise.resolve([]),
+    ]);
+
+    const toVectors = (rows: typeof likedJobEmbeddingRows): LikedJobVector[] => rows.map(row => ({
       jobId: row.jobId,
       title: row.title,
       company: row.company ?? undefined,
       composite: compositeEmbedding({
         title: row.titleEmbedding,
         description: row.descriptionEmbedding,
-        skills: row.skillsEmbedding,
       }),
     }));
+    const likedJobVectors = toVectors(likedJobEmbeddingRows);
+    const dislikedJobVectors = toVectors(dislikedJobEmbeddingRows);
 
     const candidates: Candidate<Job>[] = jobs.map(job => {
       const fields = jobEmbeddings.get(job.id);
       const cvSimilarity = cvEmbeddings && fields
         ? computeCvSimilarity(cvEmbeddings, fields)
-        : { title: 0, description: 0, skills: 0, combined: 0 };
+        : { title: 0, description: 0, combined: 0 };
 
       const jobComposite = fields ? compositeEmbedding(fields) : [];
-      // Exclude the job itself so "similar to a liked job" never just points at itself.
+      // Exclude the job itself so "similar to a liked/disliked job" never just points at itself.
       const otherLiked = likedJobVectors.filter(lj => lj.jobId !== job.id);
+      const otherDisliked = dislikedJobVectors.filter(dj => dj.jobId !== job.id);
       const { similarity: likedSimilarity, best: mostSimilarLikedJob } = jobComposite.length
         ? similarityToLikedJobs(jobComposite, otherLiked)
         : { similarity: 0, best: undefined };
+      const { similarity: dislikedSimilarity, best: mostSimilarDislikedJob } = jobComposite.length
+        ? similarityToLikedJobs(jobComposite, otherDisliked)
+        : { similarity: 0, best: undefined };
 
       const interactions = interactionsByJobId.get(job.id) ?? [];
-      const interactionScoreRaw = aggregateInteractionScore(
+      let interactionScoreRaw = aggregateInteractionScore(
         interactions.map(i => ({ weight: i.weight, createdAt: i.createdAt })),
         { decay: opts.decay ?? true },
+      );
+      // A later dismiss/less-like-this overrides prior positive history for
+      // *this specific job* — see applyMostRecentSuppression's doc comment.
+      interactionScoreRaw = applyMostRecentSuppression(
+        interactions.map(i => ({ weight: i.weight, createdAt: i.createdAt, type: i.type as any })),
+        interactionScoreRaw,
       );
 
       return {
@@ -310,6 +346,8 @@ export class RecLabService {
         cvSimilarity,
         likedSimilarity,
         mostSimilarLikedJob,
+        dislikedSimilarity,
+        mostSimilarDislikedJob,
         interactionScoreRaw,
         interactionCount: interactions.length,
       };
@@ -326,6 +364,8 @@ export class RecLabService {
         cvSimilarity: r.cvSimilarity,
         similarityToLikedJobs: r.likedSimilarity,
         mostSimilarLikedJob: r.mostSimilarLikedJob,
+        similarityToDislikedJobs: r.dislikedSimilarity,
+        mostSimilarDislikedJob: r.mostSimilarDislikedJob,
         interactionScoreRaw: r.interactionScoreRaw,
         interactionScore: r.interactionScore,
         interactionCount: r.interactionCount,

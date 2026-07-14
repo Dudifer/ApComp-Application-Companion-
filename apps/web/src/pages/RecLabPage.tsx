@@ -145,8 +145,7 @@ function RecLabCard({
             CV similarity — {explanation.cvSimilarity.combined}%
           </div>
           <ScoreBar label="Titles" value={explanation.cvSimilarity.title} />
-          <ScoreBar label="Descriptions" value={explanation.cvSimilarity.description} />
-          <ScoreBar label="Skills" value={explanation.cvSimilarity.skills} />
+          <ScoreBar label="Descriptions + skills" value={explanation.cvSimilarity.description} />
 
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '14px 0 8px' }}>
             Similarity to jobs you've liked
@@ -160,6 +159,26 @@ function RecLabCard({
             </div>
           ) : (
             <div style={{ fontSize: 12, color: 'var(--ink-tertiary)' }}>No liked jobs to compare against yet.</div>
+          )}
+
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '14px 0 8px' }}>
+            Similarity to jobs you said "less like this" to
+          </div>
+          <ScoreBar label="Best match" value={explanation.similarityToDislikedJobs} />
+          {explanation.mostSimilarDislikedJob ? (
+            <div style={{ fontSize: 12, color: 'var(--ink-secondary)' }}>
+              Most similar to <strong>{explanation.mostSimilarDislikedJob.title}</strong>
+              {explanation.mostSimilarDislikedJob.company ? ` at ${explanation.mostSimilarDislikedJob.company}` : ''}
+              {' '}({explanation.mostSimilarDislikedJob.similarity}%)
+              {explanation.similarityToDislikedJobs > 0 && (
+                // 0.4 mirrors DISLIKE_PENALTY_WEIGHT in apps/api's scoring.ts — update both if that's retuned.
+                <span style={{ color: 'var(--accent)' }}>
+                  {' '}— docking {Math.round(explanation.similarityToDislikedJobs * 0.4)} pts
+                </span>
+              )}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--ink-tertiary)' }}>No "less like this" jobs to compare against yet.</div>
           )}
 
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '14px 0 8px' }}>
