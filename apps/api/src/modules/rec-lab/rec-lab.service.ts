@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UserService } from '../../auth/user.service';
 import { EmbeddingService } from './embedding.service';
 import { cvProfileToTexts, jobToTexts, hashFieldTexts, FieldTexts } from './text';
+import { catalogRowToJob } from './catalog-embedding';
 import {
   weightFor,
   POSITIVE_INTERACTION_TYPES,
@@ -235,6 +236,21 @@ export class RecLabService {
       note: row.note ?? undefined,
       createdAt: row.createdAt.toISOString(),
     };
+  }
+
+  // ── Manual test sets ────────────────────────────────────────────────────
+
+  /**
+   * Turns a hand-picked list of job_catalog.id values (e.g. from a manual
+   * SQL query — "SELECT id, title FROM job_catalog WHERE ...") into real
+   * Job objects, so the Rec Lab can rank a curated set instead of always
+   * falling back to the live recommended-jobs feed. Unknown IDs are silently
+   * dropped rather than erroring — a typo'd ID just doesn't show up.
+   */
+  async resolveCatalogJobs(catalogIds: string[]): Promise<Job[]> {
+    if (!catalogIds.length) return [];
+    const rows = await this.prisma.jobCatalog.findMany({ where: { id: { in: catalogIds } } });
+    return rows.map(row => catalogRowToJob(row));
   }
 
   // ── Ranking ──────────────────────────────────────────────────────────────
