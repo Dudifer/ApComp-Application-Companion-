@@ -35,22 +35,28 @@ export const POSITIVE_INTERACTION_TYPES: InteractionType[] = ['SAVED', 'APPLIED'
 
 /**
  * Interaction types that propagate a *negative* signal to similar jobs, not
- * just to the exact job itself. Deliberately narrower than "any negative
- * interaction" — DISMISSED means "not this one" (the job may well have been
- * genuinely liked first; dismissing it shouldn't imply its type is
- * unwanted), whereas LESS_LIKE_THIS is an explicit, deliberate request to
- * see less of *this kind of thing* — that's the entire point of the button.
+ * just to the exact job itself. DISMISSED and LESS_LIKE_THIS both count now —
+ * dismissing a job is a real "I don't want this" signal for its neighbors
+ * too, at the same normal decayed weight as any other interaction (see
+ * INTERACTION_WEIGHTS.DISMISSED). It used to be scoped out of propagation
+ * and given a hard score floor instead (see SUPPRESSION_TYPES below), back
+ * when a dismiss's *only* lever was the score. Now that dismissing a job
+ * also removes it from the candidate pool outright (see
+ * RecLabService.rank()'s dismissedJobIds exclusion, backed by the
+ * DismissedJob table), "never show me this exact job again" is handled by
+ * literal removal, so the score itself is free to behave normally again.
  */
-export const NEGATIVE_PROPAGATION_TYPES: InteractionType[] = ['LESS_LIKE_THIS'];
+export const NEGATIVE_PROPAGATION_TYPES: InteractionType[] = ['DISMISSED', 'LESS_LIKE_THIS'];
 
 /**
  * Interaction types where, if it's the *most recent* interaction on a job,
  * should suppress that job's own score regardless of any positive history
- * before it — "I dismissed it" means "stop showing me this," not "subtract
- * a few points from an inflated total." Scoped to the job itself only; see
- * NEGATIVE_PROPAGATION_TYPES for which of these also affects similar jobs.
+ * before it. LESS_LIKE_THIS keeps this hard floor — it's an explicit taste
+ * signal, not just "not this one." DISMISSED no longer needs it: dismissing
+ * a job removes it from the candidate pool directly (see rank()), so its
+ * score doesn't need to be artificially floored to keep it from resurfacing.
  */
-export const SUPPRESSION_TYPES: InteractionType[] = ['DISMISSED', 'LESS_LIKE_THIS'];
+export const SUPPRESSION_TYPES: InteractionType[] = ['LESS_LIKE_THIS'];
 
 /** Matches normalizeInteractionScore's clamp floor, so a suppressed job's interaction component normalizes to 0. */
 export const SUPPRESSED_SCORE_FLOOR = -20;

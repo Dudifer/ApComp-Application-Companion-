@@ -142,13 +142,13 @@ describe('similarityToLikedJobs', () => {
 });
 
 describe('applyMostRecentSuppression', () => {
-  it('floors the score when the most recent interaction is DISMISSED', () => {
+  it('does NOT floor the score when the most recent interaction is DISMISSED — it removes the job from the pool instead (see RecLabService.rank())', () => {
     const interactions = [
       { weight: 8, createdAt: new Date('2026-01-01'), type: 'APPLIED' as const },
       { weight: -6, createdAt: new Date('2026-01-05'), type: 'DISMISSED' as const },
     ];
-    const raw = 9; // e.g. +8 applied, -6 dismissed, +5 saved earlier = net +9 undiluted
-    expect(applyMostRecentSuppression(interactions, raw)).toBe(SUPPRESSED_SCORE_FLOOR);
+    const raw = 9; // e.g. +8 applied, -6 dismissed = net +2, but this raw value is a stand-in
+    expect(applyMostRecentSuppression(interactions, raw)).toBe(raw);
   });
 
   it('floors the score when the most recent interaction is LESS_LIKE_THIS', () => {
@@ -172,7 +172,7 @@ describe('applyMostRecentSuppression', () => {
       { weight: -8, createdAt: new Date('2026-01-05'), type: 'LESS_LIKE_THIS' as const },
       { weight: 8, createdAt: new Date('2026-01-01'), type: 'APPLIED' as const },
     ];
-    // Same events as the DISMISSED test above but listed newest-first — should still suppress.
+    // Same events as the LESS_LIKE_THIS test above but listed newest-first — should still suppress.
     expect(applyMostRecentSuppression(interactions, 0)).toBe(SUPPRESSED_SCORE_FLOOR);
   });
 
@@ -185,10 +185,10 @@ describe('applyMostRecentSuppression', () => {
     expect(applyMostRecentSuppression([], 42)).toBe(42);
   });
 
-  it('DISMISSED and LESS_LIKE_THIS are the only suppression types, and LESS_LIKE_THIS is the only propagation type', () => {
-    expect(SUPPRESSION_TYPES).toEqual(expect.arrayContaining(['DISMISSED', 'LESS_LIKE_THIS']));
-    expect(SUPPRESSION_TYPES).toHaveLength(2);
-    expect(NEGATIVE_PROPAGATION_TYPES).toEqual(['LESS_LIKE_THIS']);
+  it('LESS_LIKE_THIS is the only suppression type; DISMISSED and LESS_LIKE_THIS both propagate', () => {
+    expect(SUPPRESSION_TYPES).toEqual(['LESS_LIKE_THIS']);
+    expect(NEGATIVE_PROPAGATION_TYPES).toEqual(expect.arrayContaining(['DISMISSED', 'LESS_LIKE_THIS']));
+    expect(NEGATIVE_PROPAGATION_TYPES).toHaveLength(2);
   });
 });
 

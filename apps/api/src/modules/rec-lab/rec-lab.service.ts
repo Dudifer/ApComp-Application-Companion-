@@ -176,7 +176,40 @@ export class RecLabService {
         note: input.note,
       },
     });
+    if (input.type === 'DISMISSED') {
+      await this.setDismissed(userId, input.externalId, input.source, input.jobTitle, input.jobCompany, true);
+    }
     return this.toInteractionRecord(row);
+  }
+
+  /**
+   * Adds or removes a DismissedJob row — the same table the legacy
+   * jobs.service.ts dismiss flow uses (POST /jobs/dismiss), so dismissing a
+   * job from either surface shares one "set aside" list and one exclusion
+   * filter. Matched on (userId, source, jobId=externalId), not the
+   * composite Job.id, to line up with how the legacy flow already writes
+   * this table.
+   */
+  private async setDismissed(
+    userId: string,
+    externalId: string,
+    source: string,
+    title: string,
+    company: string | undefined,
+    dismissed: boolean,
+  ): Promise<void> {
+    if (dismissed) {
+      const existing = await this.prisma.dismissedJob.findFirst({
+        where: { userId, jobId: externalId, source },
+      });
+      if (!existing) {
+        await this.prisma.dismissedJob.create({
+          data: { userId, jobId: externalId, source, title, company: company ?? 'Unknown Company' },
+        });
+      }
+    } else {
+      await this.prisma.dismissedJob.deleteMany({ where: { userId, jobId: externalId, source } });
+    }
   }
 
   /** The Rec Lab's "replay" feature — change a past interaction's type and see how re-ranking changes. */
@@ -198,6 +231,16 @@ export class RecLabService {
         note: input.note ?? `replayed: was ${existing.type}, changed to ${input.type}`,
       },
     });
+
+    // Keep the DismissedJob "set aside" list in sync with the replay —
+    // un-dismissing by replaying away from DISMISSED should make the job
+    // recommendable again, and replaying *to* DISMISSED should remove it.
+    if (existing.type === 'DISMISSED' && input.type !== 'DISMISSED') {
+      await this.setDismissed(userId, existing.externalId, existing.source, existing.jobTitle, existing.jobCompany ?? undefined, false);
+    } else if (existing.type !== 'DISMISSED' && input.type === 'DISMISSED') {
+      await this.setDismissed(userId, existing.externalId, existing.source, existing.jobTitle, existing.jobCompany ?? undefined, true);
+    }
+
     return this.toInteractionRecord(row);
   }
 
@@ -207,6 +250,12 @@ export class RecLabService {
     if (!existing) throw new NotFoundException('Interaction not found');
     if (existing.userId !== userId) throw new ForbiddenException();
     await this.prisma.jobInteraction.delete({ where: { id: interactionId } });
+    // Deleting a DISMISSED interaction should also un-dismiss the job —
+    // otherwise it'd stay excluded from the pool with no interaction record
+    // left to explain why.
+    if (existing.type === 'DISMISSED') {
+      await this.setDismissed(userId, existing.externalId, existing.source, existing.jobTitle, existing.jobCompany ?? undefined, false);
+    }
     return { success: true };
   }
 
@@ -261,6 +310,17 @@ export class RecLabService {
     opts: { limit?: number; noveltyRate?: number; decay?: boolean } = {},
   ): Promise<RankedJob[]> {
     const userId = await this.userService.ensureUser(clerkId);
+    if (!jobs.length) return [];
+
+    // Dismissed jobs are removed from the candidate pool outright rather
+    // than just score-penalized — see scoring.ts's NEGATIVE_PROPAGATION_TYPES
+    // comment for why. Shares the DismissedJob table with the legacy
+    // jobs.service.ts dismiss flow (POST /jobs/dismiss) via setDismissed(),
+    // so a dismiss from either surface excludes the job here too, and it's
+    // the same list GET /jobs/dismissed shows the user.
+    const dismissedRows = await this.prisma.dismissedJob.findMany({ where: { userId } });
+    const dismissedKeys = new Set(dismissedRows.map(d => `${d.source}::${d.jobId}`));
+    jobs = jobs.filter(j => !dismissedKeys.has(`${j.source}::${j.externalId}`));
     if (!jobs.length) return [];
 
     const [cvEmbeddings, jobEmbeddings] = await Promise.all([

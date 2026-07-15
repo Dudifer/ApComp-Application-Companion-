@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
 import type {
-  RankedJob, JobInteractionRecord, InteractionType, TimelinePoint,
+  RankedJob, JobInteractionRecord, InteractionType, TimelinePoint, DismissedJob,
 } from '@apcomp/types';
 import { useApi } from '../lib/api';
 
@@ -278,7 +278,24 @@ export default function RecLabPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { fetchRank(); fetchTimeline(); }, [fetchRank, fetchTimeline]);
+  // The "set aside" list — jobs dismissed from here or the live job feed
+  // share this one list (see JobsService.listDismissed / RecLabService.setDismissed).
+  const [dismissed, setDismissed] = useState<DismissedJob[]>([]);
+  const fetchDismissed = useCallback(() => {
+    api.get('/jobs/dismissed')
+      .then(r => r.json())
+      .then(data => setDismissed(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleRestore = (dismissedJobId: string) => {
+    api.del(`/jobs/dismissed/${dismissedJobId}`)
+      .then(() => { fetchDismissed(); fetchRank(); })
+      .catch(err => setError(err.message ?? 'Failed to restore job'));
+  };
+
+  useEffect(() => { fetchRank(); fetchTimeline(); fetchDismissed(); }, [fetchRank, fetchTimeline, fetchDismissed]);
 
   const loadHistory = useCallback((jobId: string) => {
     api.get(`/rec-lab/interactions?jobId=${encodeURIComponent(jobId)}`)
@@ -308,6 +325,7 @@ export default function RecLabPage() {
       .then(() => {
         fetchRank();
         fetchTimeline();
+        fetchDismissed();
         if (openHistoryFor === job.id) loadHistory(job.id);
       })
       .catch(err => setError(err.message ?? 'Failed to log interaction'));
@@ -315,13 +333,13 @@ export default function RecLabPage() {
 
   const handleReplayType = (jobId: string, interactionId: string, type: InteractionType) => {
     api.patch(`/rec-lab/interactions/${interactionId}`, { type })
-      .then(() => { fetchRank(); fetchTimeline(); loadHistory(jobId); })
+      .then(() => { fetchRank(); fetchTimeline(); fetchDismissed(); loadHistory(jobId); })
       .catch(err => setError(err.message ?? 'Failed to replay interaction'));
   };
 
   const handleReplayDelete = (jobId: string, interactionId: string) => {
     api.del(`/rec-lab/interactions/${interactionId}`)
-      .then(() => { fetchRank(); fetchTimeline(); loadHistory(jobId); })
+      .then(() => { fetchRank(); fetchTimeline(); fetchDismissed(); loadHistory(jobId); })
       .catch(err => setError(err.message ?? 'Failed to remove interaction'));
   };
 
@@ -413,6 +431,51 @@ export default function RecLabPage() {
             onReplayDelete={interactionId => handleReplayDelete(r.job.id, interactionId)}
           />
         ))}
+      </div>
+
+      <div className="section" style={{ marginBottom: 40 }}>
+        <div className="section-header">
+          <div className="section-title">Dismissed jobs ({dismissed.length})</div>
+        </div>
+        <div style={{
+          background: 'white', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+          padding: dismissed.length ? 0 : 20,
+        }}>
+          {dismissed.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--ink-tertiary)', textAlign: 'center', padding: '20px 0' }}>
+              Nothing dismissed yet — dismissed jobs are set aside here and excluded from future recommendations.
+            </div>
+          ) : (
+            dismissed.map(d => (
+              <div
+                key={d.id ?? `${d.source}-${d.jobId}`}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '10px 16px', borderBottom: '1px solid var(--border)', fontSize: 13,
+                }}
+              >
+                <div>
+                  <strong>{d.title}</strong> {d.company ? `@ ${d.company}` : ''}
+                  <span style={{ color: 'var(--ink-tertiary)', marginLeft: 8 }}>
+                    dismissed {new Date(d.dismissedAt).toLocaleDateString()}
+                  </span>
+                </div>
+                {d.id && (
+                  <button
+                    onClick={() => handleRestore(d.id!)}
+                    style={{
+                      fontSize: 12, padding: '4px 10px', borderRadius: 6, background: 'transparent',
+                      color: 'var(--accent)', border: '1px solid var(--border)', cursor: 'pointer',
+                      fontFamily: 'var(--font-body)',
+                    }}
+                  >
+                    Restore
+                  </button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       <div className="section">
