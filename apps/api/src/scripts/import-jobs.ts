@@ -17,6 +17,19 @@
  *   Daily delta refresh (after initial import):
  *     pnpm jobs:import
  *
+ * ── Embedding ──────────────────────────────────────────────────────────────
+ *
+ *   Delta refreshes embed newly-upserted rows automatically by default —
+ *   the daily batch is small enough (typically hundreds of postings) that
+ *   this doesn't meaningfully slow things down.
+ *
+ *   Full imports do NOT embed inline by default — a full dataset is huge and
+ *   embedding every row synchronously here would turn a several-minute
+ *   import into a many-hour one. Run `pnpm jobs:embed` separately afterward
+ *   (it's resumable, so it's fine to let it run in the background). Pass
+ *   --embed to this script if you want it to happen inline anyway, or
+ *   --no-embed to skip embedding on a delta run too.
+ *
  * ─────────────────────────────────────────────────────────────────────────────
  */
 import 'dotenv/config';
@@ -25,6 +38,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { PrismaClient } from '../../generated/prisma';
+import { EmbeddingService } from '../modules/rec-lab/embedding.service';
+import { embedCatalogRows } from '../modules/rec-lab/catalog-embedding';
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -59,9 +74,16 @@ const FULL_MODE    = args.includes('--all') || LOCAL_DIR !== null;
 const daysArg      = args.find(a => a.startsWith('--days='))?.split('=')[1];
 const DAYS_BACK    = Number(daysArg ?? 7);
 
+// Delta runs embed new/changed rows inline by default (small batches — cheap).
+// Full/local-dir imports skip inline embedding by default (huge batches —
+// run `pnpm jobs:embed` separately instead). Either can be overridden.
+const EMBED_OVERRIDE = args.includes('--embed') ? true : args.includes('--no-embed') ? false : null;
+const SHOULD_EMBED   = EMBED_OVERRIDE !== null ? EMBED_OVERRIDE : !FULL_MODE;
+
 // ── Prisma ─────────────────────────────────────────────────────────────────
 
 const prisma = new PrismaClient();
+const embeddings = new EmbeddingService();
 
 // ── DuckDB ─────────────────────────────────────────────────────────────────
 
@@ -198,6 +220,11 @@ type JobRow = {
   description: string | null; status: string;
 };
 
+// Accumulated across the whole run — module-level so every import mode
+// (local-dir / URL / delta) picks it up without threading extra return
+// values through each of their call chains.
+const embedStats = { embedded: 0, skipped: 0, failed: 0 };
+
 async function upsertBatch(batch: JobRow[]): Promise<void> {
   await prisma.$transaction(
     batch.map(job =>
@@ -235,9 +262,19 @@ async function processRows(rows: any[]): Promise<number> {
   }));
 
   for (let i = 0; i < jobs.length; i += BATCH_SIZE) {
-    await upsertBatch(jobs.slice(i, i + BATCH_SIZE));
+    const batch = jobs.slice(i, i + BATCH_SIZE);
+    await upsertBatch(batch);
+
+    if (SHOULD_EMBED) {
+      const result = await embedCatalogRows(prisma, embeddings, batch);
+      embedStats.embedded += result.embedded;
+      embedStats.skipped += result.skipped;
+      embedStats.failed += result.failed;
+    }
+
     process.stdout.write(
-      `\r    upserting... ${Math.min(i + BATCH_SIZE, jobs.length).toLocaleString()}/${jobs.length.toLocaleString()}`,
+      `\r    upserting... ${Math.min(i + BATCH_SIZE, jobs.length).toLocaleString()}/${jobs.length.toLocaleString()}` +
+      (SHOULD_EMBED ? ` (embedded ${embedStats.embedded.toLocaleString()})` : ''),
     );
   }
   process.stdout.write('\r');
@@ -406,11 +443,18 @@ async function main() {
     : `delta — last ${DAYS_BACK} day${DAYS_BACK === 1 ? '' : 's'}`;
 
   console.log(`\nApComp Job Import — ${modeLabel}`);
+  console.log(SHOULD_EMBED ? 'Embedding new/changed rows inline as they import.' : 'Skipping inline embedding (run `pnpm jobs:embed` separately).');
   console.log('─'.repeat(60));
 
   await prisma.$connect();
   const companiesPath = await ensureCompanies(LOCAL_DIR);
   const db = new duckdb.Database(':memory:');
+
+  if (SHOULD_EMBED) {
+    process.stdout.write('Loading embedding model (first run downloads ~90MB, cached after)... ');
+    await embeddings.embed('warmup');
+    console.log('ready\n');
+  }
 
   let total: number;
   if (LOCAL_DIR) {
@@ -424,7 +468,17 @@ async function main() {
   const catalogCount = await prisma.jobCatalog.count();
   console.log('─'.repeat(60));
   console.log(`Imported/updated: ${total.toLocaleString()}`);
-  console.log(`Total in catalog: ${catalogCount.toLocaleString()}\n`);
+  console.log(`Total in catalog: ${catalogCount.toLocaleString()}`);
+  if (SHOULD_EMBED) {
+    console.log(
+      `Embedded: ${embedStats.embedded.toLocaleString()}, ` +
+      `skipped (unchanged): ${embedStats.skipped.toLocaleString()}, ` +
+      `failed: ${embedStats.failed.toLocaleString()}`,
+    );
+  } else {
+    console.log(`Embedding skipped this run — run "pnpm jobs:embed" to backfill.`);
+  }
+  console.log('');
 
   await prisma.$disconnect();
 }

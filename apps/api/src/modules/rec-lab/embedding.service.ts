@@ -1,13 +1,26 @@
 import { Injectable, Logger } from '@nestjs/common';
+import * as path from 'path';
+import * as fs from 'fs';
+
+// Cache the model weights outside node_modules. @xenova/transformers
+// defaults to caching inside node_modules/@xenova/transformers/.cache/,
+// which gets recreated (wiping the cache) by any `pnpm install` / rebuild —
+// something this project's Windows setup has needed to do repeatedly
+// (approve-builds, rebuild sharp, memory-crash troubleshooting, etc). A
+// stable path here means the ~90MB model download only ever happens once,
+// regardless of how many times node_modules gets touched afterward.
+const MODEL_CACHE_DIR = path.join(__dirname, '..', '..', '..', '.model-cache');
 
 /**
  * Local, free, offline embedding model — no API key, no per-call cost.
  * Uses Xenova/all-MiniLM-L6-v2 (384-dim sentence embeddings) via
  * @xenova/transformers (Transformers.js), which runs entirely on-device.
  *
- * The model weights (~90MB) download once on first use and are cached
- * under the OS cache dir (or TRANSFORMERS_CACHE if set) — first call after
- * a fresh install will be noticeably slower than subsequent ones.
+ * The model weights (~90MB) download once on first use and are cached in
+ * MODEL_CACHE_DIR (see above) — first call after a fresh cache will be
+ * noticeably slower than subsequent ones, including across separate process
+ * invocations (e.g. embed-jobs-loop.ts's per-chunk restarts), since the
+ * cache lives on disk at a fixed path, not in process memory.
  *
  * @xenova/transformers ships as ESM; we load it with a dynamic import so
  * this still works cleanly from NestJS's CommonJS build output.
@@ -20,8 +33,10 @@ export class EmbeddingService {
   private async getPipeline(): Promise<any> {
     if (!this.pipelinePromise) {
       this.pipelinePromise = (async () => {
-        this.logger.log('Loading local embedding model (Xenova/all-MiniLM-L6-v2)...');
-        const { pipeline } = await import('@xenova/transformers');
+        fs.mkdirSync(MODEL_CACHE_DIR, { recursive: true });
+        const { pipeline, env } = await import('@xenova/transformers');
+        env.cacheDir = MODEL_CACHE_DIR;
+        this.logger.log(`Loading local embedding model (Xenova/all-MiniLM-L6-v2), cache: ${MODEL_CACHE_DIR}`);
         const extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
         this.logger.log('Embedding model ready.');
         return extractor;

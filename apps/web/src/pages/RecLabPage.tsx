@@ -145,8 +145,7 @@ function RecLabCard({
             CV similarity — {explanation.cvSimilarity.combined}%
           </div>
           <ScoreBar label="Titles" value={explanation.cvSimilarity.title} />
-          <ScoreBar label="Descriptions" value={explanation.cvSimilarity.description} />
-          <ScoreBar label="Skills" value={explanation.cvSimilarity.skills} />
+          <ScoreBar label="Descriptions + skills" value={explanation.cvSimilarity.description} />
 
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '14px 0 8px' }}>
             Similarity to jobs you've liked
@@ -160,6 +159,26 @@ function RecLabCard({
             </div>
           ) : (
             <div style={{ fontSize: 12, color: 'var(--ink-tertiary)' }}>No liked jobs to compare against yet.</div>
+          )}
+
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '14px 0 8px' }}>
+            Similarity to jobs you said "less like this" to
+          </div>
+          <ScoreBar label="Best match" value={explanation.similarityToDislikedJobs} />
+          {explanation.mostSimilarDislikedJob ? (
+            <div style={{ fontSize: 12, color: 'var(--ink-secondary)' }}>
+              Most similar to <strong>{explanation.mostSimilarDislikedJob.title}</strong>
+              {explanation.mostSimilarDislikedJob.company ? ` at ${explanation.mostSimilarDislikedJob.company}` : ''}
+              {' '}({explanation.mostSimilarDislikedJob.similarity}%)
+              {explanation.similarityToDislikedJobs > 0 && (
+                // 0.4 mirrors DISLIKE_PENALTY_WEIGHT in apps/api's scoring.ts — update both if that's retuned.
+                <span style={{ color: 'var(--accent)' }}>
+                  {' '}— docking {Math.round(explanation.similarityToDislikedJobs * 0.4)} pts
+                </span>
+              )}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--ink-tertiary)' }}>No "less like this" jobs to compare against yet.</div>
           )}
 
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '14px 0 8px' }}>
@@ -227,10 +246,20 @@ export default function RecLabPage() {
 
   const [timeline, setTimeline] = useState<TimelinePoint[]>([]);
 
+  // Optional manual test set — job_catalog.id values (raw, e.g. from a
+  // "SELECT id, title FROM job_catalog WHERE ..." query), not the composite
+  // "openjobdata-<id>" Job.id. Empty = fall back to the live recommended-jobs
+  // feed, same as before.
+  const [testSetInput, setTestSetInput] = useState('');
+
   const fetchRank = useCallback(() => {
     setLoading(true);
     setError(null);
-    api.post('/rec-lab/rank', { limit, noveltyRate: noveltyRate / 100, decay })
+    const catalogJobIds = testSetInput.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+    api.post('/rec-lab/rank', {
+      limit, noveltyRate: noveltyRate / 100, decay,
+      ...(catalogJobIds.length ? { catalogJobIds } : {}),
+    })
       .then(r => {
         if (!r.ok) throw new Error(`Rank request failed (${r.status})`);
         return r.json();
@@ -239,7 +268,7 @@ export default function RecLabPage() {
       .catch(err => setError(err.message ?? 'Failed to rank jobs'))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [limit, noveltyRate, decay]);
+  }, [limit, noveltyRate, decay, testSetInput]);
 
   const fetchTimeline = useCallback(() => {
     api.get('/rec-lab/timeline')
@@ -346,6 +375,20 @@ export default function RecLabPage() {
           Re-rank
         </button>
         {loading && <span style={{ fontSize: 12, color: 'var(--ink-tertiary)' }}>Ranking…</span>}
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
+          Test set (job_catalog IDs, comma/space/newline separated — empty = live recommended jobs)
+          <textarea
+            value={testSetInput}
+            onChange={e => setTestSetInput(e.target.value)}
+            placeholder="e.g. 4858917101, 4858917102, 4858917103"
+            rows={2}
+            style={{
+              flex: 1, fontSize: 12, padding: '6px 8px', borderRadius: 6,
+              border: '1px solid var(--border)', fontFamily: 'var(--font-body)', resize: 'vertical',
+            }}
+          />
+        </label>
       </div>
 
       {error && (

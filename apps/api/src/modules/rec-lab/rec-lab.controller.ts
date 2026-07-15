@@ -22,16 +22,21 @@ export class RecLabController extends AuthenticatedController {
 
   /**
    * Ranks a set of jobs by CV similarity + similarity to previously-liked
-   * jobs + interaction score, with a novelty slice mixed in. Defaults to the
-   * user's current recommended jobs if no job list is supplied, so the lab
-   * works with zero setup.
+   * jobs + interaction score, with a novelty slice mixed in. Candidate
+   * source, in priority order: an explicit `jobs` list, a manual test set of
+   * `catalogJobIds` (job_catalog.id values — see RecLabService.resolveCatalogJobs),
+   * or the user's live recommended jobs feed, so the lab works with zero setup.
    */
   @Post('rank')
   async rank(
     @Req() req: any,
-    @Body() body: { jobs?: Job[]; limit?: number; noveltyRate?: number; decay?: boolean },
+    @Body() body: { jobs?: Job[]; catalogJobIds?: string[]; limit?: number; noveltyRate?: number; decay?: boolean },
   ) {
-    const jobs = body.jobs?.length ? body.jobs : await this.jobsService.getRecommendedJobs(req.userId);
+    const jobs = body.jobs?.length
+      ? body.jobs
+      : body.catalogJobIds?.length
+      ? await this.recLab.resolveCatalogJobs(body.catalogJobIds)
+      : await this.jobsService.getRecommendedJobs(req.userId);
     return this.recLab.rank(req.userId, jobs, {
       limit: body.limit,
       noveltyRate: body.noveltyRate,

@@ -50,9 +50,8 @@ export interface UpdateInteractionInput {
 
 export interface SimilarityBreakdown {
   title: number;       // 0-100
-  description: number; // 0-100
-  skills: number;       // 0-100
-  combined: number;     // 0-100, weighted blend of the three
+  description: number; // 0-100 — includes skills text folded into description, see text.ts
+  combined: number;    // 0-100, weighted blend of the two
 }
 
 export interface LikedJobMatch {
@@ -66,6 +65,9 @@ export interface JobExplanation {
   cvSimilarity: SimilarityBreakdown;
   similarityToLikedJobs: number;
   mostSimilarLikedJob?: LikedJobMatch;
+  /** How similar this job is to something the user hit "less like this" on — 0 if never used. Docks finalScore, doesn't just fail to help it. */
+  similarityToDislikedJobs: number;
+  mostSimilarDislikedJob?: LikedJobMatch;
   interactionScoreRaw: number;
   interactionScore: number; // normalized 0-100
   interactionCount: number;
