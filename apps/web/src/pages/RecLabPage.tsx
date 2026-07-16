@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
 import type {
-  RankedJob, JobInteractionRecord, InteractionType, TimelinePoint, DismissedJob,
+  RankedJob, JobInteractionRecord, InteractionType, TimelinePoint, DismissedJob, WeightVectorSummary,
 } from '@apcomp/types';
 import { useApi } from '../lib/api';
 
@@ -264,11 +264,35 @@ export default function RecLabPage() {
         if (!r.ok) throw new Error(`Rank request failed (${r.status})`);
         return r.json();
       })
-      .then(data => setRanked(Array.isArray(data) ? data : []))
+      .then(data => { setRanked(Array.isArray(data) ? data : []); setWeightVector(null); })
       .catch(err => setError(err.message ?? 'Failed to rank jobs'))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limit, noveltyRate, decay, testSetInput]);
+
+  // Ranks the hardcoded software+retail test dataset instead of the live
+  // pgvector-backed feed — the one path that also builds/applies the CV
+  // weight vector (see scoring.ts's computeCvWeightVector), so this is how
+  // you actually see it working end to end.
+  const [weightVector, setWeightVector] = useState<WeightVectorSummary | null>(null);
+  const [weightVectorEvents, setWeightVectorEvents] = useState(0);
+  const fetchTestDatasetRank = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    api.post('/rec-lab/test-dataset/rank', { limit, noveltyRate: noveltyRate / 100, decay })
+      .then(r => {
+        if (!r.ok) throw new Error(`Test dataset rank request failed (${r.status})`);
+        return r.json();
+      })
+      .then(data => {
+        setRanked(Array.isArray(data?.ranked) ? data.ranked : []);
+        setWeightVector(data?.weightVector ?? null);
+        setWeightVectorEvents(data?.eventsUsed ?? 0);
+      })
+      .catch(err => setError(err.message ?? 'Failed to rank test dataset'))
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limit, noveltyRate, decay]);
 
   const fetchTimeline = useCallback(() => {
     api.get('/rec-lab/timeline')
@@ -392,6 +416,16 @@ export default function RecLabPage() {
         >
           Re-rank
         </button>
+        <button
+          onClick={fetchTestDatasetRank}
+          title="Rank the hardcoded software+retail test dataset and rebuild the CV weight vector from your full interaction history"
+          style={{
+            fontSize: 12, padding: '6px 14px', borderRadius: 8, background: 'var(--surface)',
+            color: 'var(--ink)', border: '1px solid var(--border)', cursor: 'pointer', fontFamily: 'var(--font-body)',
+          }}
+        >
+          Rank test dataset (software+retail)
+        </button>
         {loading && <span style={{ fontSize: 12, color: 'var(--ink-tertiary)' }}>Ranking…</span>}
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
@@ -408,6 +442,53 @@ export default function RecLabPage() {
           />
         </label>
       </div>
+
+      {weightVector && (
+        <div style={{
+          margin: '0 0 20px', padding: '14px 18px', background: 'var(--surface-2)',
+          border: '1px solid var(--border)', borderRadius: 'var(--radius)', fontSize: 13,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>
+            CV weight vector ({weightVectorEvents} interaction{weightVectorEvents === 1 ? '' : 's'} used)
+          </div>
+          {weightVectorEvents === 0 ? (
+            <div style={{ color: 'var(--ink-tertiary)' }}>
+              No interactions yet — every dimension is still at its default weight (1.0), so this ranking
+              behaves the same as the unweighted CV embedding.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 20, marginBottom: 10, color: 'var(--ink-secondary)' }}>
+                <span>mean {weightVector.mean.toFixed(3)}</span>
+                <span>min {weightVector.min.toFixed(3)}</span>
+                <span>max {weightVector.max.toFixed(3)}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ color: 'var(--ink-tertiary)', marginBottom: 4 }}>Most emphasized dims</div>
+                  {weightVector.topEmphasized.map(d => (
+                    <div key={d.dim} style={{ fontFamily: 'var(--font-mono, monospace)' }}>
+                      dim {d.dim}: {d.weight.toFixed(3)}
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div style={{ color: 'var(--ink-tertiary)', marginBottom: 4 }}>Most suppressed dims</div>
+                  {weightVector.topSuppressed.map(d => (
+                    <div key={d.dim} style={{ fontFamily: 'var(--font-mono, monospace)' }}>
+                      dim {d.dim}: {d.weight.toFixed(3)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-tertiary)' }}>
+                Dimension indices aren't semantically labeled — this shows which embedding directions your
+                interactions have pushed up/down, not what they mean.
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {error && (
         <div style={{ fontSize: 13, color: 'var(--accent)', marginBottom: 16 }}>{error}</div>

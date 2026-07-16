@@ -13,6 +13,8 @@ import { UserService } from '../../auth/user.service';
 import { EmbeddingService } from './embedding.service';
 import { cvProfileToTexts, jobToTexts, hashFieldTexts, FieldTexts } from './text';
 import { catalogRowToJob } from './catalog-embedding';
+import { TEST_DATASET } from './test-dataset';
+import type { TestDatasetRankResult } from '@apcomp/types';
 import {
   weightFor,
   POSITIVE_INTERACTION_TYPES,
@@ -23,9 +25,13 @@ import {
   compositeEmbedding,
   similarityToLikedJobs,
   rankCandidates,
+  computeCvWeightVector,
+  applyWeights,
+  summarizeWeightVector,
   Candidate,
   FieldEmbeddings,
   LikedJobVector,
+  WeightUpdateEvent,
 } from './scoring';
 
 @Injectable()
@@ -374,12 +380,76 @@ export class RecLabService {
     return rows.map(r => catalogById.get(r.jobId)).filter((j): j is Job => Boolean(j));
   }
 
+  // ── Test dataset (hardcoded, bypasses pgvector) ─────────────────────────
+
+  /**
+   * Same idea as findNearestJobs(), but sourced from the hardcoded
+   * TEST_DATASET (see test-dataset.ts — 50 software + 50 retail jobs, real
+   * job_catalog ids) instead of the live pgvector index, so you can iterate
+   * on the CV weight vector / interaction propagation without depending on
+   * the DB-side ANN index being set up.
+   *
+   * This is the one path that actually builds and applies the CV weight
+   * vector end to end: it replays every interaction this user has ever
+   * logged against the job it was on (via computeCvWeightVector), then
+   * passes the resulting per-dimension weights into rank() so they actually
+   * reshape the liked/disliked-similarity signal, not just get computed and
+   * discarded.
+   */
+  async rankTestDataset(
+    clerkId: string,
+    opts: { limit?: number; noveltyRate?: number; decay?: boolean } = {},
+  ): Promise<TestDatasetRankResult> {
+    const userId = await this.userService.ensureUser(clerkId);
+
+    const cvEmbeddings = await this.ensureCvEmbeddings(userId);
+    const cvComposite = cvEmbeddings ? compositeEmbedding(cvEmbeddings) : [];
+
+    // Build the weight-update events: every interaction this user has ever
+    // logged, paired with the composite embedding of the job it was on.
+    const allInteractions = await this.prisma.jobInteraction.findMany({ where: { userId } });
+    const uniqueJobIds = [...new Set(allInteractions.map(i => i.jobId))];
+    const interactedEmbeddings = uniqueJobIds.length
+      ? await this.prisma.jobEmbedding.findMany({ where: { jobId: { in: uniqueJobIds } } })
+      : [];
+    const compositeByJobId = new Map(
+      interactedEmbeddings.map(row => [
+        row.jobId,
+        compositeEmbedding({ title: row.titleEmbedding, description: row.descriptionEmbedding }),
+      ]),
+    );
+    const events: WeightUpdateEvent[] = allInteractions
+      .map(i => ({ type: i.type as any, jobComposite: compositeByJobId.get(i.jobId) ?? [] }))
+      .filter(e => e.jobComposite.length > 0);
+
+    const weightVector = cvComposite.length ? computeCvWeightVector(events, cvComposite) : [];
+
+    const testJobs = TEST_DATASET.map(row => catalogRowToJob(row));
+    // Warms embeddings for the whole test set up front (cheap after the
+    // first run — these ids are real job_catalog rows, so most are already
+    // cached from the live backfill).
+    await this.ensureJobEmbeddings(testJobs);
+
+    const ranked = await this.rank(clerkId, testJobs, {
+      limit: opts.limit ?? testJobs.length,
+      noveltyRate: opts.noveltyRate,
+      decay: opts.decay,
+      cvWeights: weightVector.length ? weightVector : undefined,
+    });
+
+    return {
+      ranked,
+      weightVector: summarizeWeightVector(weightVector),
+      eventsUsed: events.length,
+    };
+  }
+
   // ── Ranking ──────────────────────────────────────────────────────────────
 
   async rank(
     clerkId: string,
     jobs: Job[],
-    opts: { limit?: number; noveltyRate?: number; decay?: boolean } = {},
+    opts: { limit?: number; noveltyRate?: number; decay?: boolean; cvWeights?: number[] } = {},
   ): Promise<RankedJob[]> {
     const userId = await this.userService.ensureUser(clerkId);
     if (!jobs.length) return [];
@@ -457,8 +527,17 @@ export class RecLabService {
         description: row.descriptionEmbedding,
       }),
     }));
-    const likedJobVectors = toVectors(likedJobEmbeddingRows);
-    const dislikedJobVectors = toVectors(dislikedJobEmbeddingRows);
+    // Optional: reweight the composite embedding space per-dimension before
+    // any liked/disliked-similarity comparison — see scoring.ts's
+    // computeCvWeightVector. Only touches the liked/disliked-similarity
+    // signal, not computeCvSimilarity's title/description breakdown, so the
+    // causal chain stays clean: interactions train the weight vector, the
+    // weight vector reshapes how strongly you're pulled toward/away from
+    // jobs similar to ones you've already interacted with. Undefined (the
+    // default) leaves every other rank() caller's behavior byte-identical.
+    const weighted = (v: number[]) => (opts.cvWeights ? applyWeights(v, opts.cvWeights) : v);
+    const likedJobVectors = toVectors(likedJobEmbeddingRows).map(lj => ({ ...lj, composite: weighted(lj.composite) }));
+    const dislikedJobVectors = toVectors(dislikedJobEmbeddingRows).map(dj => ({ ...dj, composite: weighted(dj.composite) }));
 
     const candidates: Candidate<Job>[] = jobs.map(job => {
       const fields = jobEmbeddings.get(job.id);
@@ -466,7 +545,7 @@ export class RecLabService {
         ? computeCvSimilarity(cvEmbeddings, fields)
         : { title: 0, description: 0, combined: 0 };
 
-      const jobComposite = fields ? compositeEmbedding(fields) : [];
+      const jobComposite = fields ? weighted(compositeEmbedding(fields)) : [];
       // Exclude the job itself so "similar to a liked/disliked job" never just points at itself.
       const otherLiked = likedJobVectors.filter(lj => lj.jobId !== job.id);
       const otherDisliked = dislikedJobVectors.filter(dj => dj.jobId !== job.id);

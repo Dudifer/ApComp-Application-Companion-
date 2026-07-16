@@ -58,6 +58,22 @@ export class RecLabController extends AuthenticatedController {
     });
   }
 
+  /**
+   * Ranks the hardcoded software+retail test dataset (test-dataset.ts)
+   * instead of pulling from the live pgvector index — for iterating on
+   * ranking behavior without depending on the DB-side ANN index. Also
+   * builds and applies the CV weight vector from this user's full
+   * interaction history (see RecLabService.rankTestDataset), returning a
+   * summary of it alongside the ranked jobs.
+   */
+  @Post('test-dataset/rank')
+  rankTestDataset(
+    @Req() req: any,
+    @Body() body: { limit?: number; noveltyRate?: number; decay?: boolean },
+  ) {
+    return this.recLab.rankTestDataset(req.userId, body);
+  }
+
   @Post('interactions')
   logInteraction(@Req() req: any, @Body() body: LogInteractionInput) {
     return this.recLab.logInteraction(req.userId, body);

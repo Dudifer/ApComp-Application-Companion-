@@ -85,3 +85,24 @@ export interface TimelinePoint {
   count: number;
   jobs: { jobId: string; title: string; company?: string }[];
 }
+
+/**
+ * Summary of the per-dimension CV weight vector (see scoring.ts's
+ * computeCvWeightVector) — the 384 raw numbers aren't meaningful on their
+ * own, this is what's actually worth showing a user.
+ */
+export interface WeightVectorSummary {
+  mean: number;
+  min: number;
+  max: number;
+  topEmphasized: { dim: number; weight: number }[];
+  topSuppressed: { dim: number; weight: number }[];
+}
+
+/** Response for POST /rec-lab/test-dataset/rank — same RankedJob[] as /rank, plus the weight vector that produced it. */
+export interface TestDatasetRankResult {
+  ranked: RankedJob[];
+  weightVector: WeightVectorSummary;
+  /** How many interactions fed into the weight vector — 0 means every dimension is still at 1 (no signal yet). */
+  eventsUsed: number;
+}
