@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Query, Param, Req, UseGuards } from '@nestjs/common';
 import { JobsService } from './jobs.service';
 import { ContactFinderService } from './contact-finder.service';
 import { CapturedJobInput } from '@apcomp/types';
@@ -73,6 +73,18 @@ export class JobsController extends AuthenticatedController {
       body.title,
       body.reason,
     );
+  }
+
+  /** The "set aside" list — every job dismissed from either this flow or Rec Lab's DISMISSED interaction. */
+  @Get('dismissed')
+  listDismissed(@Req() req: any) {
+    return this.jobsService.listDismissed(req.userId);
+  }
+
+  /** Restores a dismissed job — it becomes eligible to be recommended again. */
+  @Delete('dismissed/:id')
+  undismissJob(@Req() req: any, @Param('id') id: string) {
+    return this.jobsService.undismissJob(req.userId, id);
   }
 
   @Get('contacts')

@@ -35,22 +35,28 @@ export const POSITIVE_INTERACTION_TYPES: InteractionType[] = ['SAVED', 'APPLIED'
 
 /**
  * Interaction types that propagate a *negative* signal to similar jobs, not
- * just to the exact job itself. Deliberately narrower than "any negative
- * interaction" — DISMISSED means "not this one" (the job may well have been
- * genuinely liked first; dismissing it shouldn't imply its type is
- * unwanted), whereas LESS_LIKE_THIS is an explicit, deliberate request to
- * see less of *this kind of thing* — that's the entire point of the button.
+ * just to the exact job itself. DISMISSED and LESS_LIKE_THIS both count now —
+ * dismissing a job is a real "I don't want this" signal for its neighbors
+ * too, at the same normal decayed weight as any other interaction (see
+ * INTERACTION_WEIGHTS.DISMISSED). It used to be scoped out of propagation
+ * and given a hard score floor instead (see SUPPRESSION_TYPES below), back
+ * when a dismiss's *only* lever was the score. Now that dismissing a job
+ * also removes it from the candidate pool outright (see
+ * RecLabService.rank()'s dismissedJobIds exclusion, backed by the
+ * DismissedJob table), "never show me this exact job again" is handled by
+ * literal removal, so the score itself is free to behave normally again.
  */
-export const NEGATIVE_PROPAGATION_TYPES: InteractionType[] = ['LESS_LIKE_THIS'];
+export const NEGATIVE_PROPAGATION_TYPES: InteractionType[] = ['DISMISSED', 'LESS_LIKE_THIS'];
 
 /**
  * Interaction types where, if it's the *most recent* interaction on a job,
  * should suppress that job's own score regardless of any positive history
- * before it — "I dismissed it" means "stop showing me this," not "subtract
- * a few points from an inflated total." Scoped to the job itself only; see
- * NEGATIVE_PROPAGATION_TYPES for which of these also affects similar jobs.
+ * before it. LESS_LIKE_THIS keeps this hard floor — it's an explicit taste
+ * signal, not just "not this one." DISMISSED no longer needs it: dismissing
+ * a job removes it from the candidate pool directly (see rank()), so its
+ * score doesn't need to be artificially floored to keep it from resurfacing.
  */
-export const SUPPRESSION_TYPES: InteractionType[] = ['DISMISSED', 'LESS_LIKE_THIS'];
+export const SUPPRESSION_TYPES: InteractionType[] = ['LESS_LIKE_THIS'];
 
 /** Matches normalizeInteractionScore's clamp floor, so a suppressed job's interaction component normalizes to 0. */
 export const SUPPRESSED_SCORE_FLOOR = -20;
@@ -164,6 +170,131 @@ export function compositeEmbedding(fields: FieldEmbeddings): number[] {
   return sum.map(x => x / n);
 }
 
+// ── CV weight vector ─────────────────────────────────────────────────────────
+//
+// A per-dimension weight over the composite embedding space (same 384
+// dimensions as compositeEmbedding()'s output), learned from interaction
+// history rather than stored directly — see RecLabService for how it's
+// assembled from JobInteraction rows. Answers "which parts of the CV embed
+// matter most to this user": dimensions where the CV and a liked job keep
+// agreeing get weighted up, dimensions that only show up agreeing with
+// disliked jobs get weighted down. Individual dimension indices aren't
+// human-interpretable on their own (this is a generic sentence-transformer
+// space, not a labeled feature set) — the useful output is which dimensions
+// end up furthest from 1, not what dimension #217 "means".
+
+export const CV_WEIGHT_LEARNING_RATE = 0.05;
+export const CV_WEIGHT_MIN = 0.2;
+export const CV_WEIGHT_MAX = 3;
+
+export interface WeightUpdateEvent {
+  type: InteractionType;
+  jobComposite: number[];
+}
+
+/**
+ * Starts every dimension at 1 (equally important) and nudges each one up or
+ * down per interaction: for a given event, `cvComposite[i] * jobComposite[i]`
+ * is positive where the CV and that job agree in direction on dimension i,
+ * negative where they disagree. Scaling that agreement by the interaction's
+ * existing weight (weightFor()) means a strong signal (APPLIED,
+ * LESS_LIKE_THIS) moves the weight vector more than a weak one (CLICKED,
+ * IGNORED), and a negative interaction pushes agreeing dimensions *down*
+ * rather than up — automatically, since weightFor() is already negative for
+ * those types. Clamped to [CV_WEIGHT_MIN, CV_WEIGHT_MAX] so no dimension can
+ * run away to zero or dominate everything else.
+ *
+ * Pure and order-independent in effect (each event's contribution is
+ * additive) — deliberately NOT time-decayed the way aggregateInteractionScore
+ * is, since this runs over a comparatively small interaction history, not
+ * the full production feed.
+ */
+export function computeCvWeightVector(
+  events: WeightUpdateEvent[],
+  cvComposite: number[],
+): number[] {
+  const dims = cvComposite.length;
+  const weights = new Array(dims).fill(1);
+  if (!dims) return weights;
+
+  for (const event of events) {
+    if (event.jobComposite.length !== dims) continue;
+    const signal = weightFor(event.type);
+    if (signal === 0) continue;
+    for (let i = 0; i < dims; i++) {
+      const agreement = cvComposite[i] * event.jobComposite[i];
+      weights[i] = Math.max(
+        CV_WEIGHT_MIN,
+        Math.min(CV_WEIGHT_MAX, weights[i] + CV_WEIGHT_LEARNING_RATE * signal * agreement),
+      );
+    }
+  }
+  return weights;
+}
+
+/** Elementwise multiply — applies a per-dimension weight vector before comparing two vectors. */
+export function applyWeights(vec: number[], weights: number[]): number[] {
+  if (vec.length !== weights.length) return vec;
+  return vec.map((v, i) => v * weights[i]);
+}
+
+export interface WeightVectorSummary {
+  mean: number;
+  min: number;
+  max: number;
+  /** Dimensions weighted furthest above 1 — most emphasized. */
+  topEmphasized: { dim: number; weight: number }[];
+  /** Dimensions weighted furthest below 1 — most suppressed. */
+  topSuppressed: { dim: number; weight: number }[];
+}
+
+/** Summarizes a weight vector for display — the raw 384 numbers aren't meaningful on their own. */
+export function summarizeWeightVector(weights: number[], topN = 5): WeightVectorSummary {
+  if (!weights.length) return { mean: 1, min: 1, max: 1, topEmphasized: [], topSuppressed: [] };
+  const indexed = weights.map((weight, dim) => ({ dim, weight }));
+  const topEmphasized = [...indexed].sort((a, b) => b.weight - a.weight).slice(0, topN);
+  const topSuppressed = [...indexed].sort((a, b) => a.weight - b.weight).slice(0, topN);
+  return {
+    mean: weights.reduce((a, b) => a + b, 0) / weights.length,
+    min: Math.min(...weights),
+    max: Math.max(...weights),
+    topEmphasized,
+    topSuppressed,
+  };
+}
+
+// ── Preference embedding ─────────────────────────────────────────────────────
+//
+// A second, much simpler "who does this user like" signal, deliberately
+// distinct from both the CV embedding (what the resume says) and the CV
+// weight vector above (which CV dimensions matter most). This is just the
+// literal mean of the composite embeddings of every job the user has SAVED,
+// APPLIED to, or hit MORE_LIKE_THIS on — no learning, no decay, no
+// per-dimension weighting of its own. "For now" a plain average; can grow
+// more sophisticated later if that turns out to be too blunt an instrument.
+
+/**
+ * Mean of a set of composite embeddings. Used as the preference embedding
+ * (mean of liked-job composites), but it's a generic "blend N vectors"
+ * helper — nothing here is specific to preferences. Mismatched-length or
+ * empty vectors are dropped rather than throwing, same tolerance as
+ * compositeEmbedding().
+ */
+export function computePreferenceEmbedding(composites: number[][]): number[] {
+  const nonEmpty = composites.filter(c => c.length > 0);
+  if (!nonEmpty.length) return [];
+  const dims = nonEmpty[0].length;
+  const sum = new Array(dims).fill(0);
+  let n = 0;
+  for (const c of nonEmpty) {
+    if (c.length !== dims) continue;
+    for (let i = 0; i < dims; i++) sum[i] += c[i];
+    n++;
+  }
+  if (!n) return [];
+  return sum.map(x => x / n);
+}
+
 export interface LikedJobVector {
   jobId: string;
   title: string;
@@ -191,8 +322,15 @@ export function similarityToLikedJobs(
 
 // ── Final ranking ────────────────────────────────────────────────────────────
 
-/** How much each signal contributes to the final rank. */
-export const RANK_WEIGHTS = { cvSimilarity: 0.45, likedSimilarity: 0.25, interaction: 0.3 };
+/**
+ * How much each signal contributes to the final rank. Rebalanced to make
+ * room for preferenceSimilarity (see computePreferenceEmbedding): cvSimilarity
+ * gave up 0.45->0.35 and likedSimilarity (best-match to a single liked job)
+ * gave up 0.25->0.15, since the new mean-of-liked-jobs signal captures
+ * similar ground more robustly (less sensitive to one outlier liked job).
+ * interaction stays at 0.3 — still the most direct behavioral signal.
+ */
+export const RANK_WEIGHTS = { cvSimilarity: 0.35, likedSimilarity: 0.15, preferenceSimilarity: 0.2, interaction: 0.3 };
 
 /**
  * How hard a job gets docked for resembling something the user explicitly
@@ -217,6 +355,8 @@ export interface Candidate<J> {
   cvSimilarity: SimilarityBreakdown;
   likedSimilarity: number;
   mostSimilarLikedJob?: LikedJobMatch;
+  /** Cosine similarity to the mean of the user's liked-job composites (see computePreferenceEmbedding) — 0 if they have no liked jobs yet. */
+  preferenceSimilarity: number;
   /** How similar this job is to something the user hit "less like this" on. 0 if they never have. */
   dislikedSimilarity: number;
   mostSimilarDislikedJob?: LikedJobMatch;
@@ -256,6 +396,7 @@ export function rankCandidates<J>(
     const blended =
       c.cvSimilarity.combined * RANK_WEIGHTS.cvSimilarity +
       c.likedSimilarity * RANK_WEIGHTS.likedSimilarity +
+      c.preferenceSimilarity * RANK_WEIGHTS.preferenceSimilarity +
       interactionScore * RANK_WEIGHTS.interaction;
     const finalScore = Math.round(blended - c.dislikedSimilarity * DISLIKE_PENALTY_WEIGHT);
     return { ...c, interactionScore, finalScore, novelty: false };

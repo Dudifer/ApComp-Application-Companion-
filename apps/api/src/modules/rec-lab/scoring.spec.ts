@@ -4,17 +4,25 @@ import {
   SUPPRESSION_TYPES,
   SUPPRESSED_SCORE_FLOOR,
   DISLIKE_PENALTY_WEIGHT,
+  RANK_WEIGHTS,
+  CV_WEIGHT_MIN,
+  CV_WEIGHT_MAX,
   aggregateInteractionScore,
   applyMostRecentSuppression,
   cosineSimilarity,
   toPercent,
   computeCvSimilarity,
   compositeEmbedding,
+  computePreferenceEmbedding,
+  computeCvWeightVector,
+  applyWeights,
+  summarizeWeightVector,
   similarityToLikedJobs,
   normalizeInteractionScore,
   rankCandidates,
   type Candidate,
   type FieldEmbeddings,
+  type WeightUpdateEvent,
 } from './scoring';
 
 describe('cosineSimilarity / toPercent', () => {
@@ -125,6 +133,132 @@ describe('computeCvSimilarity / compositeEmbedding', () => {
   });
 });
 
+describe('computeCvWeightVector / applyWeights / summarizeWeightVector', () => {
+  it('starts every dimension at 1 with no events', () => {
+    expect(computeCvWeightVector([], [1, 0, 0.5])).toEqual([1, 1, 1]);
+  });
+
+  it('returns an empty vector when the CV composite is empty', () => {
+    expect(computeCvWeightVector([{ type: 'APPLIED', jobComposite: [1] }], [])).toEqual([]);
+  });
+
+  it('ignores events with zero signal (e.g. VIEWED)', () => {
+    const cv = [1, 1];
+    const events: WeightUpdateEvent[] = [{ type: 'VIEWED', jobComposite: [1, 1] }];
+    expect(computeCvWeightVector(events, cv)).toEqual([1, 1]);
+  });
+
+  it('ignores events whose job composite length does not match the CV composite', () => {
+    const cv = [1, 1];
+    const events: WeightUpdateEvent[] = [{ type: 'APPLIED', jobComposite: [1, 1, 1] }];
+    expect(computeCvWeightVector(events, cv)).toEqual([1, 1]);
+  });
+
+  it('a positive interaction on a job that agrees with the CV pushes that dimension\'s weight up', () => {
+    const cv = [1, -1];
+    // jobComposite agrees with cv on both dims (same sign each time).
+    const events: WeightUpdateEvent[] = [{ type: 'APPLIED', jobComposite: [1, -1] }];
+    const [w0, w1] = computeCvWeightVector(events, cv);
+    expect(w0).toBeGreaterThan(1);
+    expect(w1).toBeGreaterThan(1);
+  });
+
+  it('a negative interaction (LESS_LIKE_THIS) on a job that agrees with the CV pushes that dimension down', () => {
+    const cv = [1, -1];
+    const events: WeightUpdateEvent[] = [{ type: 'LESS_LIKE_THIS', jobComposite: [1, -1] }];
+    const [w0, w1] = computeCvWeightVector(events, cv);
+    expect(w0).toBeLessThan(1);
+    expect(w1).toBeLessThan(1);
+  });
+
+  it('disagreement flips the direction of the nudge relative to agreement, for the same interaction type', () => {
+    const cv = [1, -1];
+    const agree = computeCvWeightVector([{ type: 'APPLIED', jobComposite: [1, -1] }], cv);
+    const disagree = computeCvWeightVector([{ type: 'APPLIED', jobComposite: [-1, 1] }], cv);
+    expect(agree[0]).toBeGreaterThan(1);
+    expect(disagree[0]).toBeLessThan(1);
+  });
+
+  it('clamps to [CV_WEIGHT_MIN, CV_WEIGHT_MAX] even with many strong repeated events', () => {
+    const cv = [1];
+    const events: WeightUpdateEvent[] = Array.from({ length: 200 }, () => ({
+      type: 'APPLIED' as const,
+      jobComposite: [1],
+    }));
+    const [w] = computeCvWeightVector(events, cv);
+    expect(w).toBeLessThanOrEqual(CV_WEIGHT_MAX);
+
+    const negEvents: WeightUpdateEvent[] = Array.from({ length: 200 }, () => ({
+      type: 'LESS_LIKE_THIS' as const,
+      jobComposite: [1],
+    }));
+    const [wDown] = computeCvWeightVector(negEvents, cv);
+    expect(wDown).toBeGreaterThanOrEqual(CV_WEIGHT_MIN);
+  });
+
+  it('is order-independent — same events in a different order produce the same result', () => {
+    const cv = [1, -1, 0.5];
+    const events: WeightUpdateEvent[] = [
+      { type: 'APPLIED', jobComposite: [1, -1, 0.5] },
+      { type: 'LESS_LIKE_THIS', jobComposite: [1, 1, -0.5] },
+      { type: 'SAVED', jobComposite: [-1, -1, 0.5] },
+    ];
+    const forward = computeCvWeightVector(events, cv);
+    const reversed = computeCvWeightVector([...events].reverse(), cv);
+    forward.forEach((w, i) => expect(w).toBeCloseTo(reversed[i], 10));
+  });
+
+  it('applyWeights elementwise-multiplies a vector by the weight vector', () => {
+    expect(applyWeights([2, 3, 4], [0.5, 1, 2])).toEqual([1, 3, 8]);
+  });
+
+  it('applyWeights returns the vector unchanged if lengths mismatch', () => {
+    expect(applyWeights([1, 2], [1, 1, 1])).toEqual([1, 2]);
+  });
+
+  describe('summarizeWeightVector', () => {
+    it('returns all-1 defaults for an empty vector', () => {
+      expect(summarizeWeightVector([])).toEqual({
+        mean: 1, min: 1, max: 1, topEmphasized: [], topSuppressed: [],
+      });
+    });
+
+    it('computes mean/min/max correctly', () => {
+      const summary = summarizeWeightVector([1, 2, 3, 0.5]);
+      expect(summary.mean).toBeCloseTo(1.625, 5);
+      expect(summary.min).toBe(0.5);
+      expect(summary.max).toBe(3);
+    });
+
+    it('ranks topEmphasized descending and topSuppressed ascending, capped at topN', () => {
+      const weights = [1, 3, 0.5, 2.5, 0.2, 1.5];
+      const summary = summarizeWeightVector(weights, 2);
+      expect(summary.topEmphasized.map(d => d.dim)).toEqual([1, 3]); // weights 3, 2.5
+      expect(summary.topSuppressed.map(d => d.dim)).toEqual([4, 2]); // weights 0.2, 0.5
+      expect(summary.topEmphasized).toHaveLength(2);
+      expect(summary.topSuppressed).toHaveLength(2);
+    });
+  });
+});
+
+describe('computePreferenceEmbedding', () => {
+  it('averages multiple composite vectors', () => {
+    expect(computePreferenceEmbedding([[1, 0], [0, 1]])).toEqual([0.5, 0.5]);
+  });
+  it('returns empty for no vectors', () => {
+    expect(computePreferenceEmbedding([])).toEqual([]);
+  });
+  it('ignores empty vectors mixed in with real ones', () => {
+    expect(computePreferenceEmbedding([[2, 4], []])).toEqual([2, 4]);
+  });
+  it('drops mismatched-length vectors rather than throwing', () => {
+    expect(computePreferenceEmbedding([[1, 1], [1, 1, 1]])).toEqual([1, 1]);
+  });
+  it('a single vector is its own mean', () => {
+    expect(computePreferenceEmbedding([[3, -2]])).toEqual([3, -2]);
+  });
+});
+
 describe('similarityToLikedJobs', () => {
   it('returns 0 and no match when there are no liked jobs', () => {
     const result = similarityToLikedJobs([1, 0], []);
@@ -142,13 +276,13 @@ describe('similarityToLikedJobs', () => {
 });
 
 describe('applyMostRecentSuppression', () => {
-  it('floors the score when the most recent interaction is DISMISSED', () => {
+  it('does NOT floor the score when the most recent interaction is DISMISSED — it removes the job from the pool instead (see RecLabService.rank())', () => {
     const interactions = [
       { weight: 8, createdAt: new Date('2026-01-01'), type: 'APPLIED' as const },
       { weight: -6, createdAt: new Date('2026-01-05'), type: 'DISMISSED' as const },
     ];
-    const raw = 9; // e.g. +8 applied, -6 dismissed, +5 saved earlier = net +9 undiluted
-    expect(applyMostRecentSuppression(interactions, raw)).toBe(SUPPRESSED_SCORE_FLOOR);
+    const raw = 9; // e.g. +8 applied, -6 dismissed = net +2, but this raw value is a stand-in
+    expect(applyMostRecentSuppression(interactions, raw)).toBe(raw);
   });
 
   it('floors the score when the most recent interaction is LESS_LIKE_THIS', () => {
@@ -172,7 +306,7 @@ describe('applyMostRecentSuppression', () => {
       { weight: -8, createdAt: new Date('2026-01-05'), type: 'LESS_LIKE_THIS' as const },
       { weight: 8, createdAt: new Date('2026-01-01'), type: 'APPLIED' as const },
     ];
-    // Same events as the DISMISSED test above but listed newest-first — should still suppress.
+    // Same events as the LESS_LIKE_THIS test above but listed newest-first — should still suppress.
     expect(applyMostRecentSuppression(interactions, 0)).toBe(SUPPRESSED_SCORE_FLOOR);
   });
 
@@ -185,10 +319,10 @@ describe('applyMostRecentSuppression', () => {
     expect(applyMostRecentSuppression([], 42)).toBe(42);
   });
 
-  it('DISMISSED and LESS_LIKE_THIS are the only suppression types, and LESS_LIKE_THIS is the only propagation type', () => {
-    expect(SUPPRESSION_TYPES).toEqual(expect.arrayContaining(['DISMISSED', 'LESS_LIKE_THIS']));
-    expect(SUPPRESSION_TYPES).toHaveLength(2);
-    expect(NEGATIVE_PROPAGATION_TYPES).toEqual(['LESS_LIKE_THIS']);
+  it('LESS_LIKE_THIS is the only suppression type; DISMISSED and LESS_LIKE_THIS both propagate', () => {
+    expect(SUPPRESSION_TYPES).toEqual(['LESS_LIKE_THIS']);
+    expect(NEGATIVE_PROPAGATION_TYPES).toEqual(expect.arrayContaining(['DISMISSED', 'LESS_LIKE_THIS']));
+    expect(NEGATIVE_PROPAGATION_TYPES).toHaveLength(2);
   });
 });
 
@@ -198,6 +332,7 @@ describe('rankCandidates', () => {
       job: { id: `job-${i}` },
       cvSimilarity: { title: 0, description: 0, combined: 100 - i * 4 },
       likedSimilarity: 50,
+      preferenceSimilarity: 0,
       dislikedSimilarity: 0,
       interactionScoreRaw: 0,
       interactionCount: 0,
@@ -250,12 +385,34 @@ describe('rankCandidates', () => {
       job: { id: 'a' },
       cvSimilarity: { title: 0, description: 0, combined: 80 },
       likedSimilarity: 0,
+      preferenceSimilarity: 0,
       dislikedSimilarity: 0,
       interactionScoreRaw: 0,
       interactionCount: 0,
     }]);
-    // 80 * 0.45 + 0 * 0.25 + 50(neutral) * 0.3 = 36 + 0 + 15 = 51
-    expect(withZeroDislike.finalScore).toBe(51);
+    // 80 * 0.35 + 0 * 0.15 + 0 * 0.2 + 50(neutral) * 0.3 = 28 + 0 + 0 + 15 = 43
+    expect(withZeroDislike.finalScore).toBe(43);
+  });
+
+  it('preferenceSimilarity increases the blended score, weighted by RANK_WEIGHTS.preferenceSimilarity', () => {
+    const base: Omit<Candidate<{ id: string }>, 'preferenceSimilarity'> = {
+      job: { id: 'a' },
+      cvSimilarity: { title: 0, description: 0, combined: 0 },
+      likedSimilarity: 0,
+      dislikedSimilarity: 0,
+      interactionScoreRaw: 0,
+      interactionCount: 0,
+    };
+    const [noPreference] = rankCandidates([{ ...base, preferenceSimilarity: 0 }]);
+    const [fullPreference] = rankCandidates([{ ...base, preferenceSimilarity: 100 }]);
+    expect(fullPreference.finalScore).toBeGreaterThan(noPreference.finalScore);
+    expect(fullPreference.finalScore - noPreference.finalScore).toBe(Math.round(100 * RANK_WEIGHTS.preferenceSimilarity));
+  });
+
+  it('RANK_WEIGHTS sums to 1 (no double-counted or missing scoring budget)', () => {
+    const sum = RANK_WEIGHTS.cvSimilarity + RANK_WEIGHTS.likedSimilarity
+      + RANK_WEIGHTS.preferenceSimilarity + RANK_WEIGHTS.interaction;
+    expect(sum).toBeCloseTo(1, 10);
   });
 
   it('docks a candidate that resembles something the user said less-like-this to', () => {
@@ -263,6 +420,7 @@ describe('rankCandidates', () => {
       job: { id: 'a' },
       cvSimilarity: { title: 0, description: 0, combined: 80 },
       likedSimilarity: 0,
+      preferenceSimilarity: 0,
       interactionScoreRaw: 0,
       interactionCount: 0,
     };
@@ -277,13 +435,13 @@ describe('rankCandidates', () => {
       {
         job: { id: 'resembles-disliked' },
         cvSimilarity: { title: 0, description: 0, combined: 80 },
-        likedSimilarity: 50, dislikedSimilarity: 90,
+        likedSimilarity: 50, preferenceSimilarity: 0, dislikedSimilarity: 90,
         interactionScoreRaw: 0, interactionCount: 0,
       },
       {
         job: { id: 'clean' },
         cvSimilarity: { title: 0, description: 0, combined: 80 },
-        likedSimilarity: 50, dislikedSimilarity: 0,
+        likedSimilarity: 50, preferenceSimilarity: 0, dislikedSimilarity: 0,
         interactionScoreRaw: 0, interactionCount: 0,
       },
     ], { noveltyRate: 0 });

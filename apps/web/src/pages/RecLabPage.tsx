@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
 import type {
-  RankedJob, JobInteractionRecord, InteractionType, TimelinePoint,
+  RankedJob, JobInteractionRecord, InteractionType, TimelinePoint, DismissedJob, WeightVectorSummary,
 } from '@apcomp/types';
 import { useApi } from '../lib/api';
 
@@ -162,6 +162,15 @@ function RecLabCard({
           )}
 
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '14px 0 8px' }}>
+            Preference embed
+          </div>
+          <ScoreBar label="Match to mean of liked jobs" value={explanation.preferenceSimilarity} />
+          <div style={{ fontSize: 12, color: 'var(--ink-tertiary)' }}>
+            The plain average of every job vector you've saved, applied to, or hit "more like this" on —
+            a simpler, aggregate taste signal alongside the best-match score above.
+          </div>
+
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '14px 0 8px' }}>
             Similarity to jobs you said "less like this" to
           </div>
           <ScoreBar label="Best match" value={explanation.similarityToDislikedJobs} />
@@ -264,11 +273,35 @@ export default function RecLabPage() {
         if (!r.ok) throw new Error(`Rank request failed (${r.status})`);
         return r.json();
       })
-      .then(data => setRanked(Array.isArray(data) ? data : []))
+      .then(data => { setRanked(Array.isArray(data) ? data : []); setWeightVector(null); })
       .catch(err => setError(err.message ?? 'Failed to rank jobs'))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limit, noveltyRate, decay, testSetInput]);
+
+  // Ranks the hardcoded software+retail test dataset instead of the live
+  // pgvector-backed feed — the one path that also builds/applies the CV
+  // weight vector (see scoring.ts's computeCvWeightVector), so this is how
+  // you actually see it working end to end.
+  const [weightVector, setWeightVector] = useState<WeightVectorSummary | null>(null);
+  const [weightVectorEvents, setWeightVectorEvents] = useState(0);
+  const fetchTestDatasetRank = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    api.post('/rec-lab/test-dataset/rank', { limit, noveltyRate: noveltyRate / 100, decay })
+      .then(r => {
+        if (!r.ok) throw new Error(`Test dataset rank request failed (${r.status})`);
+        return r.json();
+      })
+      .then(data => {
+        setRanked(Array.isArray(data?.ranked) ? data.ranked : []);
+        setWeightVector(data?.weightVector ?? null);
+        setWeightVectorEvents(data?.eventsUsed ?? 0);
+      })
+      .catch(err => setError(err.message ?? 'Failed to rank test dataset'))
+      .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limit, noveltyRate, decay]);
 
   const fetchTimeline = useCallback(() => {
     api.get('/rec-lab/timeline')
@@ -278,7 +311,24 @@ export default function RecLabPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => { fetchRank(); fetchTimeline(); }, [fetchRank, fetchTimeline]);
+  // The "set aside" list — jobs dismissed from here or the live job feed
+  // share this one list (see JobsService.listDismissed / RecLabService.setDismissed).
+  const [dismissed, setDismissed] = useState<DismissedJob[]>([]);
+  const fetchDismissed = useCallback(() => {
+    api.get('/jobs/dismissed')
+      .then(r => r.json())
+      .then(data => setDismissed(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleRestore = (dismissedJobId: string) => {
+    api.del(`/jobs/dismissed/${dismissedJobId}`)
+      .then(() => { fetchDismissed(); fetchRank(); })
+      .catch(err => setError(err.message ?? 'Failed to restore job'));
+  };
+
+  useEffect(() => { fetchRank(); fetchTimeline(); fetchDismissed(); }, [fetchRank, fetchTimeline, fetchDismissed]);
 
   const loadHistory = useCallback((jobId: string) => {
     api.get(`/rec-lab/interactions?jobId=${encodeURIComponent(jobId)}`)
@@ -308,6 +358,7 @@ export default function RecLabPage() {
       .then(() => {
         fetchRank();
         fetchTimeline();
+        fetchDismissed();
         if (openHistoryFor === job.id) loadHistory(job.id);
       })
       .catch(err => setError(err.message ?? 'Failed to log interaction'));
@@ -315,13 +366,13 @@ export default function RecLabPage() {
 
   const handleReplayType = (jobId: string, interactionId: string, type: InteractionType) => {
     api.patch(`/rec-lab/interactions/${interactionId}`, { type })
-      .then(() => { fetchRank(); fetchTimeline(); loadHistory(jobId); })
+      .then(() => { fetchRank(); fetchTimeline(); fetchDismissed(); loadHistory(jobId); })
       .catch(err => setError(err.message ?? 'Failed to replay interaction'));
   };
 
   const handleReplayDelete = (jobId: string, interactionId: string) => {
     api.del(`/rec-lab/interactions/${interactionId}`)
-      .then(() => { fetchRank(); fetchTimeline(); loadHistory(jobId); })
+      .then(() => { fetchRank(); fetchTimeline(); fetchDismissed(); loadHistory(jobId); })
       .catch(err => setError(err.message ?? 'Failed to remove interaction'));
   };
 
@@ -374,6 +425,16 @@ export default function RecLabPage() {
         >
           Re-rank
         </button>
+        <button
+          onClick={fetchTestDatasetRank}
+          title="Rank the hardcoded software+retail test dataset and rebuild the CV weight vector from your full interaction history"
+          style={{
+            fontSize: 12, padding: '6px 14px', borderRadius: 8, background: 'var(--surface)',
+            color: 'var(--ink)', border: '1px solid var(--border)', cursor: 'pointer', fontFamily: 'var(--font-body)',
+          }}
+        >
+          Rank test dataset (software+retail)
+        </button>
         {loading && <span style={{ fontSize: 12, color: 'var(--ink-tertiary)' }}>Ranking…</span>}
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
@@ -390,6 +451,53 @@ export default function RecLabPage() {
           />
         </label>
       </div>
+
+      {weightVector && (
+        <div style={{
+          margin: '0 0 20px', padding: '14px 18px', background: 'var(--surface-2)',
+          border: '1px solid var(--border)', borderRadius: 'var(--radius)', fontSize: 13,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>
+            CV weight vector ({weightVectorEvents} interaction{weightVectorEvents === 1 ? '' : 's'} used)
+          </div>
+          {weightVectorEvents === 0 ? (
+            <div style={{ color: 'var(--ink-tertiary)' }}>
+              No interactions yet — every dimension is still at its default weight (1.0), so this ranking
+              behaves the same as the unweighted CV embedding.
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: 20, marginBottom: 10, color: 'var(--ink-secondary)' }}>
+                <span>mean {weightVector.mean.toFixed(3)}</span>
+                <span>min {weightVector.min.toFixed(3)}</span>
+                <span>max {weightVector.max.toFixed(3)}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ color: 'var(--ink-tertiary)', marginBottom: 4 }}>Most emphasized dims</div>
+                  {weightVector.topEmphasized.map(d => (
+                    <div key={d.dim} style={{ fontFamily: 'var(--font-mono, monospace)' }}>
+                      dim {d.dim}: {d.weight.toFixed(3)}
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div style={{ color: 'var(--ink-tertiary)', marginBottom: 4 }}>Most suppressed dims</div>
+                  {weightVector.topSuppressed.map(d => (
+                    <div key={d.dim} style={{ fontFamily: 'var(--font-mono, monospace)' }}>
+                      dim {d.dim}: {d.weight.toFixed(3)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--ink-tertiary)' }}>
+                Dimension indices aren't semantically labeled — this shows which embedding directions your
+                interactions have pushed up/down, not what they mean.
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {error && (
         <div style={{ fontSize: 13, color: 'var(--accent)', marginBottom: 16 }}>{error}</div>
@@ -413,6 +521,51 @@ export default function RecLabPage() {
             onReplayDelete={interactionId => handleReplayDelete(r.job.id, interactionId)}
           />
         ))}
+      </div>
+
+      <div className="section" style={{ marginBottom: 40 }}>
+        <div className="section-header">
+          <div className="section-title">Dismissed jobs ({dismissed.length})</div>
+        </div>
+        <div style={{
+          background: 'white', border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+          padding: dismissed.length ? 0 : 20,
+        }}>
+          {dismissed.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--ink-tertiary)', textAlign: 'center', padding: '20px 0' }}>
+              Nothing dismissed yet — dismissed jobs are set aside here and excluded from future recommendations.
+            </div>
+          ) : (
+            dismissed.map(d => (
+              <div
+                key={d.id ?? `${d.source}-${d.jobId}`}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '10px 16px', borderBottom: '1px solid var(--border)', fontSize: 13,
+                }}
+              >
+                <div>
+                  <strong>{d.title}</strong> {d.company ? `@ ${d.company}` : ''}
+                  <span style={{ color: 'var(--ink-tertiary)', marginLeft: 8 }}>
+                    dismissed {new Date(d.dismissedAt).toLocaleDateString()}
+                  </span>
+                </div>
+                {d.id && (
+                  <button
+                    onClick={() => handleRestore(d.id!)}
+                    style={{
+                      fontSize: 12, padding: '4px 10px', borderRadius: 6, background: 'transparent',
+                      color: 'var(--accent)', border: '1px solid var(--border)', cursor: 'pointer',
+                      fontFamily: 'var(--font-body)',
+                    }}
+                  >
+                    Restore
+                  </button>
+                )}
+              </div>
+            ))
+          )}
+        </div>
       </div>
 
       <div className="section">

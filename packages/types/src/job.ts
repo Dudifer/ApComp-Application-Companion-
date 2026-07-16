@@ -90,6 +90,8 @@ export interface Job {
 }
 
 export interface DismissedJob {
+  /** The DismissedJob row's own id — used to restore (un-dismiss) via DELETE /jobs/dismissed/:id. Optional since older call sites construct this without it. */
+  id?: string;
   jobId: string;
   source: JobSource;
   company: string;

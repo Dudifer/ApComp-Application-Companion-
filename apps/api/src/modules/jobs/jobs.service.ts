@@ -211,6 +211,35 @@ export class JobsService {
     return { success: true };
   }
 
+  /** The "set aside" list — every job the user has dismissed, from either this flow or Rec Lab's DISMISSED interaction. */
+  async listDismissed(userId: string): Promise<DismissedJob[]> {
+    userId = await this.userService.ensureUser(userId);
+    const rows = await this.prisma.dismissedJob.findMany({
+      where: { userId },
+      orderBy: { dismissedAt: 'desc' },
+    });
+    return rows.map(r => ({
+      id: r.id,
+      jobId: r.jobId,
+      source: r.source as DismissedJob['source'],
+      company: r.company,
+      title: r.title,
+      reason: r.reason ?? undefined,
+      dismissedAt: r.dismissedAt.toISOString(),
+    }));
+  }
+
+  /** Restores a dismissed job — removes it from the "set aside" list so it's eligible to be recommended again. */
+  async undismissJob(userId: string, dismissedJobRowId: string): Promise<{ success: true }> {
+    userId = await this.userService.ensureUser(userId);
+    const existing = await this.prisma.dismissedJob.findUnique({ where: { id: dismissedJobRowId } });
+    if (!existing || existing.userId !== userId) {
+      throw new BadRequestException('Dismissed job not found');
+    }
+    await this.prisma.dismissedJob.delete({ where: { id: dismissedJobRowId } });
+    return { success: true };
+  }
+
   // Kept for API compatibility — with a single source weights are always equal
   async getWeights(userId: string) {
     return { adzuna: 0.5, jsearch: 0.5 };

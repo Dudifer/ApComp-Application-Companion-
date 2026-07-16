@@ -65,6 +65,8 @@ export interface JobExplanation {
   cvSimilarity: SimilarityBreakdown;
   similarityToLikedJobs: number;
   mostSimilarLikedJob?: LikedJobMatch;
+  /** Cosine similarity to the mean of the user's SAVED/APPLIED/MORE_LIKE_THIS job composites ("preference embed") — 0 if they have no liked jobs yet. */
+  preferenceSimilarity: number;
   /** How similar this job is to something the user hit "less like this" on — 0 if never used. Docks finalScore, doesn't just fail to help it. */
   similarityToDislikedJobs: number;
   mostSimilarDislikedJob?: LikedJobMatch;
@@ -84,4 +86,25 @@ export interface TimelinePoint {
   date: string; // YYYY-MM-DD
   count: number;
   jobs: { jobId: string; title: string; company?: string }[];
+}
+
+/**
+ * Summary of the per-dimension CV weight vector (see scoring.ts's
+ * computeCvWeightVector) — the 384 raw numbers aren't meaningful on their
+ * own, this is what's actually worth showing a user.
+ */
+export interface WeightVectorSummary {
+  mean: number;
+  min: number;
+  max: number;
+  topEmphasized: { dim: number; weight: number }[];
+  topSuppressed: { dim: number; weight: number }[];
+}
+
+/** Response for POST /rec-lab/test-dataset/rank — same RankedJob[] as /rank, plus the weight vector that produced it. */
+export interface TestDatasetRankResult {
+  ranked: RankedJob[];
+  weightVector: WeightVectorSummary;
+  /** How many interactions fed into the weight vector — 0 means every dimension is still at 1 (no signal yet). */
+  eventsUsed: number;
 }

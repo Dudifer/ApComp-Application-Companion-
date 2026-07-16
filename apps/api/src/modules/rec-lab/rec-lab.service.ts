@@ -13,6 +13,8 @@ import { UserService } from '../../auth/user.service';
 import { EmbeddingService } from './embedding.service';
 import { cvProfileToTexts, jobToTexts, hashFieldTexts, FieldTexts } from './text';
 import { catalogRowToJob } from './catalog-embedding';
+import { TEST_DATASET } from './test-dataset';
+import type { TestDatasetRankResult } from '@apcomp/types';
 import {
   weightFor,
   POSITIVE_INTERACTION_TYPES,
@@ -21,11 +23,18 @@ import {
   applyMostRecentSuppression,
   computeCvSimilarity,
   compositeEmbedding,
+  computePreferenceEmbedding,
+  cosineSimilarity,
+  toPercent,
   similarityToLikedJobs,
   rankCandidates,
+  computeCvWeightVector,
+  applyWeights,
+  summarizeWeightVector,
   Candidate,
   FieldEmbeddings,
   LikedJobVector,
+  WeightUpdateEvent,
 } from './scoring';
 
 @Injectable()
@@ -153,6 +162,27 @@ export class RecLabService {
           });
         }),
       );
+
+      // Prisma has no native pgvector type, so compositeVector can't go
+      // through the upsert's `data:{}` above — write it separately via raw
+      // SQL, same as catalog-embedding.ts's embedCatalogRows(). Keeps
+      // live/non-catalog jobs (e.g. Adzuna) eligible for nearest-neighbor
+      // search too, not just the job_catalog backfill path.
+      await Promise.all(
+        toCompute.map(async (c, i) => {
+          const composite = compositeEmbedding({ title: flatVectors[i * 2], description: flatVectors[i * 2 + 1] });
+          if (!composite.length) return;
+          try {
+            await this.prisma.$executeRawUnsafe(
+              `UPDATE job_embeddings SET "compositeVector" = $1::vector WHERE "jobId" = $2`,
+              `[${composite.join(',')}]`,
+              c.job.id,
+            );
+          } catch (err) {
+            this.logger.warn(`compositeVector write failed for ${c.job.id}`, err as Error);
+          }
+        }),
+      );
     }
 
     return result;
@@ -176,7 +206,40 @@ export class RecLabService {
         note: input.note,
       },
     });
+    if (input.type === 'DISMISSED') {
+      await this.setDismissed(userId, input.externalId, input.source, input.jobTitle, input.jobCompany, true);
+    }
     return this.toInteractionRecord(row);
+  }
+
+  /**
+   * Adds or removes a DismissedJob row — the same table the legacy
+   * jobs.service.ts dismiss flow uses (POST /jobs/dismiss), so dismissing a
+   * job from either surface shares one "set aside" list and one exclusion
+   * filter. Matched on (userId, source, jobId=externalId), not the
+   * composite Job.id, to line up with how the legacy flow already writes
+   * this table.
+   */
+  private async setDismissed(
+    userId: string,
+    externalId: string,
+    source: string,
+    title: string,
+    company: string | undefined,
+    dismissed: boolean,
+  ): Promise<void> {
+    if (dismissed) {
+      const existing = await this.prisma.dismissedJob.findFirst({
+        where: { userId, jobId: externalId, source },
+      });
+      if (!existing) {
+        await this.prisma.dismissedJob.create({
+          data: { userId, jobId: externalId, source, title, company: company ?? 'Unknown Company' },
+        });
+      }
+    } else {
+      await this.prisma.dismissedJob.deleteMany({ where: { userId, jobId: externalId, source } });
+    }
   }
 
   /** The Rec Lab's "replay" feature — change a past interaction's type and see how re-ranking changes. */
@@ -198,6 +261,16 @@ export class RecLabService {
         note: input.note ?? `replayed: was ${existing.type}, changed to ${input.type}`,
       },
     });
+
+    // Keep the DismissedJob "set aside" list in sync with the replay —
+    // un-dismissing by replaying away from DISMISSED should make the job
+    // recommendable again, and replaying *to* DISMISSED should remove it.
+    if (existing.type === 'DISMISSED' && input.type !== 'DISMISSED') {
+      await this.setDismissed(userId, existing.externalId, existing.source, existing.jobTitle, existing.jobCompany ?? undefined, false);
+    } else if (existing.type !== 'DISMISSED' && input.type === 'DISMISSED') {
+      await this.setDismissed(userId, existing.externalId, existing.source, existing.jobTitle, existing.jobCompany ?? undefined, true);
+    }
+
     return this.toInteractionRecord(row);
   }
 
@@ -207,6 +280,12 @@ export class RecLabService {
     if (!existing) throw new NotFoundException('Interaction not found');
     if (existing.userId !== userId) throw new ForbiddenException();
     await this.prisma.jobInteraction.delete({ where: { id: interactionId } });
+    // Deleting a DISMISSED interaction should also un-dismiss the job —
+    // otherwise it'd stay excluded from the pool with no interaction record
+    // left to explain why.
+    if (existing.type === 'DISMISSED') {
+      await this.setDismissed(userId, existing.externalId, existing.source, existing.jobTitle, existing.jobCompany ?? undefined, false);
+    }
     return { success: true };
   }
 
@@ -253,14 +332,140 @@ export class RecLabService {
     return rows.map(row => catalogRowToJob(row));
   }
 
+  // ── Nearest-neighbor retrieval ───────────────────────────────────────────
+
+  /**
+   * The actual "embed CV -> pull the N nearest jobs across the full
+   * embedded catalog" step. Previously rank() could only re-rank whatever
+   * candidate list it was handed (defaulting to the old non-embedding
+   * recommended-jobs feed) — this is real retrieval: one Postgres query,
+   * using the pgvector HNSW index on job_embeddings.compositeVector (see
+   * migration 20260715120000_add_pgvector_composite_index), ordered by
+   * cosine distance to the CV's own composite embedding.
+   *
+   * poolSize should be bigger than what you actually intend to show —
+   * rank() narrows this pool down further via CV-similarity/interaction
+   * scoring/novelty sampling. Pulling exactly `limit` here would leave
+   * novelty picks with nothing to sample from besides the top scorers
+   * themselves.
+   */
+  async findNearestJobs(clerkId: string, poolSize = 100): Promise<Job[]> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const cvEmbeddings = await this.ensureCvEmbeddings(userId);
+    if (!cvEmbeddings) return [];
+
+    const cvComposite = compositeEmbedding(cvEmbeddings);
+    if (!cvComposite.length) return [];
+
+    const rows = await this.prisma.$queryRawUnsafe<
+      { jobId: string; source: string; externalId: string }[]
+    >(
+      `SELECT "jobId", source, "externalId"
+       FROM job_embeddings
+       WHERE "compositeVector" IS NOT NULL
+       ORDER BY "compositeVector" <=> $1::vector
+       LIMIT $2`,
+      `[${cvComposite.join(',')}]`,
+      poolSize,
+    );
+
+    // job_embeddings only stores minimal display fields (title/company), not
+    // a full Job — resolve back to real Job objects via job_catalog. Only
+    // handles openjobdata-sourced rows for now (the vast majority — the
+    // 1.4M-row backfill); a nearest match from a live-fetched source
+    // (adzuna/manual) would need re-fetching from that provider instead,
+    // which isn't wired up here yet, so those are silently dropped rather
+    // than surfaced broken.
+    const catalogIds = rows.filter(r => r.source === 'openjobdata').map(r => r.externalId);
+    const catalogJobs = await this.resolveCatalogJobs(catalogIds);
+    const catalogById = new Map(catalogJobs.map(j => [j.id, j]));
+
+    return rows.map(r => catalogById.get(r.jobId)).filter((j): j is Job => Boolean(j));
+  }
+
+  // ── Test dataset (hardcoded, bypasses pgvector) ─────────────────────────
+
+  /**
+   * Same idea as findNearestJobs(), but sourced from the hardcoded
+   * TEST_DATASET (see test-dataset.ts — 50 software + 50 retail jobs, real
+   * job_catalog ids) instead of the live pgvector index, so you can iterate
+   * on the CV weight vector / interaction propagation without depending on
+   * the DB-side ANN index being set up.
+   *
+   * This is the one path that actually builds and applies the CV weight
+   * vector end to end: it replays every interaction this user has ever
+   * logged against the job it was on (via computeCvWeightVector), then
+   * passes the resulting per-dimension weights into rank() so they actually
+   * reshape the liked/disliked-similarity signal, not just get computed and
+   * discarded.
+   */
+  async rankTestDataset(
+    clerkId: string,
+    opts: { limit?: number; noveltyRate?: number; decay?: boolean } = {},
+  ): Promise<TestDatasetRankResult> {
+    const userId = await this.userService.ensureUser(clerkId);
+
+    const cvEmbeddings = await this.ensureCvEmbeddings(userId);
+    const cvComposite = cvEmbeddings ? compositeEmbedding(cvEmbeddings) : [];
+
+    // Build the weight-update events: every interaction this user has ever
+    // logged, paired with the composite embedding of the job it was on.
+    const allInteractions = await this.prisma.jobInteraction.findMany({ where: { userId } });
+    const uniqueJobIds = [...new Set(allInteractions.map(i => i.jobId))];
+    const interactedEmbeddings = uniqueJobIds.length
+      ? await this.prisma.jobEmbedding.findMany({ where: { jobId: { in: uniqueJobIds } } })
+      : [];
+    const compositeByJobId = new Map(
+      interactedEmbeddings.map(row => [
+        row.jobId,
+        compositeEmbedding({ title: row.titleEmbedding, description: row.descriptionEmbedding }),
+      ]),
+    );
+    const events: WeightUpdateEvent[] = allInteractions
+      .map(i => ({ type: i.type as any, jobComposite: compositeByJobId.get(i.jobId) ?? [] }))
+      .filter(e => e.jobComposite.length > 0);
+
+    const weightVector = cvComposite.length ? computeCvWeightVector(events, cvComposite) : [];
+
+    const testJobs = TEST_DATASET.map(row => catalogRowToJob(row));
+    // Warms embeddings for the whole test set up front (cheap after the
+    // first run — these ids are real job_catalog rows, so most are already
+    // cached from the live backfill).
+    await this.ensureJobEmbeddings(testJobs);
+
+    const ranked = await this.rank(clerkId, testJobs, {
+      limit: opts.limit ?? testJobs.length,
+      noveltyRate: opts.noveltyRate,
+      decay: opts.decay,
+      cvWeights: weightVector.length ? weightVector : undefined,
+    });
+
+    return {
+      ranked,
+      weightVector: summarizeWeightVector(weightVector),
+      eventsUsed: events.length,
+    };
+  }
+
   // ── Ranking ──────────────────────────────────────────────────────────────
 
   async rank(
     clerkId: string,
     jobs: Job[],
-    opts: { limit?: number; noveltyRate?: number; decay?: boolean } = {},
+    opts: { limit?: number; noveltyRate?: number; decay?: boolean; cvWeights?: number[] } = {},
   ): Promise<RankedJob[]> {
     const userId = await this.userService.ensureUser(clerkId);
+    if (!jobs.length) return [];
+
+    // Dismissed jobs are removed from the candidate pool outright rather
+    // than just score-penalized — see scoring.ts's NEGATIVE_PROPAGATION_TYPES
+    // comment for why. Shares the DismissedJob table with the legacy
+    // jobs.service.ts dismiss flow (POST /jobs/dismiss) via setDismissed(),
+    // so a dismiss from either surface excludes the job here too, and it's
+    // the same list GET /jobs/dismissed shows the user.
+    const dismissedRows = await this.prisma.dismissedJob.findMany({ where: { userId } });
+    const dismissedKeys = new Set(dismissedRows.map(d => `${d.source}::${d.jobId}`));
+    jobs = jobs.filter(j => !dismissedKeys.has(`${j.source}::${j.externalId}`));
     if (!jobs.length) return [];
 
     const [cvEmbeddings, jobEmbeddings] = await Promise.all([
@@ -325,8 +530,28 @@ export class RecLabService {
         description: row.descriptionEmbedding,
       }),
     }));
-    const likedJobVectors = toVectors(likedJobEmbeddingRows);
-    const dislikedJobVectors = toVectors(dislikedJobEmbeddingRows);
+    // Optional: reweight the composite embedding space per-dimension before
+    // any liked/disliked-similarity comparison — see scoring.ts's
+    // computeCvWeightVector. Only touches the liked/disliked-similarity
+    // signal, not computeCvSimilarity's title/description breakdown, so the
+    // causal chain stays clean: interactions train the weight vector, the
+    // weight vector reshapes how strongly you're pulled toward/away from
+    // jobs similar to ones you've already interacted with. Undefined (the
+    // default) leaves every other rank() caller's behavior byte-identical.
+    const weighted = (v: number[]) => (opts.cvWeights ? applyWeights(v, opts.cvWeights) : v);
+    const likedJobVectors = toVectors(likedJobEmbeddingRows).map(lj => ({ ...lj, composite: weighted(lj.composite) }));
+    const dislikedJobVectors = toVectors(dislikedJobEmbeddingRows).map(dj => ({ ...dj, composite: weighted(dj.composite) }));
+
+    // The "preference embed" — literally just the mean of the user's liked
+    // (SAVED/APPLIED/MORE_LIKE_THIS) job composites, in the same (optionally
+    // cvWeights-reweighted) space as jobComposite below, so it's directly
+    // comparable. Deliberately simpler than likedSimilarity's best-match
+    // search: one aggregate "this is roughly what I respond to" direction,
+    // alongside the CV weight vector, rather than per-job lookups. Empty
+    // (and every preferenceSimilarity below 0) until the user has liked
+    // at least one job.
+    const likedJobIdSet = new Set(likedJobVectors.map(lj => lj.jobId));
+    const preferenceEmbedding = computePreferenceEmbedding(likedJobVectors.map(lj => lj.composite));
 
     const candidates: Candidate<Job>[] = jobs.map(job => {
       const fields = jobEmbeddings.get(job.id);
@@ -334,7 +559,7 @@ export class RecLabService {
         ? computeCvSimilarity(cvEmbeddings, fields)
         : { title: 0, description: 0, combined: 0 };
 
-      const jobComposite = fields ? compositeEmbedding(fields) : [];
+      const jobComposite = fields ? weighted(compositeEmbedding(fields)) : [];
       // Exclude the job itself so "similar to a liked/disliked job" never just points at itself.
       const otherLiked = likedJobVectors.filter(lj => lj.jobId !== job.id);
       const otherDisliked = dislikedJobVectors.filter(dj => dj.jobId !== job.id);
@@ -344,6 +569,18 @@ export class RecLabService {
       const { similarity: dislikedSimilarity, best: mostSimilarDislikedJob } = jobComposite.length
         ? similarityToLikedJobs(jobComposite, otherDisliked)
         : { similarity: 0, best: undefined };
+
+      // Self-excluding, same as otherLiked/otherDisliked above: if this job
+      // is itself one of the liked jobs, recompute the mean without it so a
+      // liked job's own preferenceSimilarity isn't inflated by including
+      // itself in the average. Cheap in practice — the liked-jobs list is
+      // small — and only actually recomputes for jobs that need it.
+      const jobPreferenceEmbedding = likedJobIdSet.has(job.id)
+        ? computePreferenceEmbedding(otherLiked.map(lj => lj.composite))
+        : preferenceEmbedding;
+      const preferenceSimilarity = jobComposite.length && jobPreferenceEmbedding.length
+        ? toPercent(cosineSimilarity(jobComposite, jobPreferenceEmbedding))
+        : 0;
 
       const interactions = interactionsByJobId.get(job.id) ?? [];
       let interactionScoreRaw = aggregateInteractionScore(
@@ -362,6 +599,7 @@ export class RecLabService {
         cvSimilarity,
         likedSimilarity,
         mostSimilarLikedJob,
+        preferenceSimilarity,
         dislikedSimilarity,
         mostSimilarDislikedJob,
         interactionScoreRaw,
@@ -380,6 +618,7 @@ export class RecLabService {
         cvSimilarity: r.cvSimilarity,
         similarityToLikedJobs: r.likedSimilarity,
         mostSimilarLikedJob: r.mostSimilarLikedJob,
+        preferenceSimilarity: r.preferenceSimilarity,
         similarityToDislikedJobs: r.dislikedSimilarity,
         mostSimilarDislikedJob: r.mostSimilarDislikedJob,
         interactionScoreRaw: r.interactionScoreRaw,
