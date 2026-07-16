@@ -153,6 +153,27 @@ export class RecLabService {
           });
         }),
       );
+
+      // Prisma has no native pgvector type, so compositeVector can't go
+      // through the upsert's `data:{}` above — write it separately via raw
+      // SQL, same as catalog-embedding.ts's embedCatalogRows(). Keeps
+      // live/non-catalog jobs (e.g. Adzuna) eligible for nearest-neighbor
+      // search too, not just the job_catalog backfill path.
+      await Promise.all(
+        toCompute.map(async (c, i) => {
+          const composite = compositeEmbedding({ title: flatVectors[i * 2], description: flatVectors[i * 2 + 1] });
+          if (!composite.length) return;
+          try {
+            await this.prisma.$executeRawUnsafe(
+              `UPDATE job_embeddings SET "compositeVector" = $1::vector WHERE "jobId" = $2`,
+              `[${composite.join(',')}]`,
+              c.job.id,
+            );
+          } catch (err) {
+            this.logger.warn(`compositeVector write failed for ${c.job.id}`, err as Error);
+          }
+        }),
+      );
     }
 
     return result;
@@ -300,6 +321,57 @@ export class RecLabService {
     if (!catalogIds.length) return [];
     const rows = await this.prisma.jobCatalog.findMany({ where: { id: { in: catalogIds } } });
     return rows.map(row => catalogRowToJob(row));
+  }
+
+  // ── Nearest-neighbor retrieval ───────────────────────────────────────────
+
+  /**
+   * The actual "embed CV -> pull the N nearest jobs across the full
+   * embedded catalog" step. Previously rank() could only re-rank whatever
+   * candidate list it was handed (defaulting to the old non-embedding
+   * recommended-jobs feed) — this is real retrieval: one Postgres query,
+   * using the pgvector HNSW index on job_embeddings.compositeVector (see
+   * migration 20260715120000_add_pgvector_composite_index), ordered by
+   * cosine distance to the CV's own composite embedding.
+   *
+   * poolSize should be bigger than what you actually intend to show —
+   * rank() narrows this pool down further via CV-similarity/interaction
+   * scoring/novelty sampling. Pulling exactly `limit` here would leave
+   * novelty picks with nothing to sample from besides the top scorers
+   * themselves.
+   */
+  async findNearestJobs(clerkId: string, poolSize = 100): Promise<Job[]> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const cvEmbeddings = await this.ensureCvEmbeddings(userId);
+    if (!cvEmbeddings) return [];
+
+    const cvComposite = compositeEmbedding(cvEmbeddings);
+    if (!cvComposite.length) return [];
+
+    const rows = await this.prisma.$queryRawUnsafe<
+      { jobId: string; source: string; externalId: string }[]
+    >(
+      `SELECT "jobId", source, "externalId"
+       FROM job_embeddings
+       WHERE "compositeVector" IS NOT NULL
+       ORDER BY "compositeVector" <=> $1::vector
+       LIMIT $2`,
+      `[${cvComposite.join(',')}]`,
+      poolSize,
+    );
+
+    // job_embeddings only stores minimal display fields (title/company), not
+    // a full Job — resolve back to real Job objects via job_catalog. Only
+    // handles openjobdata-sourced rows for now (the vast majority — the
+    // 1.4M-row backfill); a nearest match from a live-fetched source
+    // (adzuna/manual) would need re-fetching from that provider instead,
+    // which isn't wired up here yet, so those are silently dropped rather
+    // than surfaced broken.
+    const catalogIds = rows.filter(r => r.source === 'openjobdata').map(r => r.externalId);
+    const catalogJobs = await this.resolveCatalogJobs(catalogIds);
+    const catalogById = new Map(catalogJobs.map(j => [j.id, j]));
+
+    return rows.map(r => catalogById.get(r.jobId)).filter((j): j is Job => Boolean(j));
   }
 
   // ── Ranking ──────────────────────────────────────────────────────────────

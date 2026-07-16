@@ -23,20 +23,34 @@ export class RecLabController extends AuthenticatedController {
   /**
    * Ranks a set of jobs by CV similarity + similarity to previously-liked
    * jobs + interaction score, with a novelty slice mixed in. Candidate
-   * source, in priority order: an explicit `jobs` list, a manual test set of
-   * `catalogJobIds` (job_catalog.id values — see RecLabService.resolveCatalogJobs),
-   * or the user's live recommended jobs feed, so the lab works with zero setup.
+   * source, in priority order:
+   *   1. an explicit `jobs` list
+   *   2. a manual test set of `catalogJobIds` (job_catalog.id values — see
+   *      RecLabService.resolveCatalogJobs)
+   *   3. real nearest-neighbor retrieval — embed the CV, pull the closest
+   *      `nnPoolSize` jobs across the full embedded catalog via the pgvector
+   *      index (RecLabService.findNearestJobs)
+   *   4. the old non-embedding recommended-jobs feed, as a last-resort
+   *      fallback for users with no CV profile yet / before any backfill has
+   *      populated compositeVector, so the lab still works with zero setup.
    */
   @Post('rank')
   async rank(
     @Req() req: any,
-    @Body() body: { jobs?: Job[]; catalogJobIds?: string[]; limit?: number; noveltyRate?: number; decay?: boolean },
+    @Body() body: {
+      jobs?: Job[]; catalogJobIds?: string[]; nnPoolSize?: number;
+      limit?: number; noveltyRate?: number; decay?: boolean;
+    },
   ) {
-    const jobs = body.jobs?.length
-      ? body.jobs
-      : body.catalogJobIds?.length
-      ? await this.recLab.resolveCatalogJobs(body.catalogJobIds)
-      : await this.jobsService.getRecommendedJobs(req.userId);
+    let jobs: Job[];
+    if (body.jobs?.length) {
+      jobs = body.jobs;
+    } else if (body.catalogJobIds?.length) {
+      jobs = await this.recLab.resolveCatalogJobs(body.catalogJobIds);
+    } else {
+      jobs = await this.recLab.findNearestJobs(req.userId, body.nnPoolSize ?? 100);
+      if (!jobs.length) jobs = await this.jobsService.getRecommendedJobs(req.userId);
+    }
     return this.recLab.rank(req.userId, jobs, {
       limit: body.limit,
       noveltyRate: body.noveltyRate,

@@ -1,6 +1,11 @@
 services:
   postgres:
-    image: postgres:16
+    # pgvector/pgvector:pg16 = postgres:16 + the pgvector extension files
+    # preinstalled (same Postgres major version, so the existing pgdata
+    # volume is compatible — this is a drop-in image swap, not a DB upgrade).
+    # Needed for real nearest-neighbor job matching — see
+    # prisma/migrations/20260715120000_add_pgvector_composite_index.
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: apcomp_user

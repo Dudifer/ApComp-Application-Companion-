@@ -2,6 +2,11 @@ import type { Job } from '@apcomp/types';
 import type { PrismaClient } from '../../../generated/prisma';
 import { EmbeddingService } from './embedding.service';
 import { jobToTexts, hashFieldTexts } from './text';
+import { compositeEmbedding } from './scoring';
+
+function toVectorLiteral(vec: number[]): string {
+  return `[${vec.join(',')}]`;
+}
 
 /**
  * Shared between the one-off backfill script (embed-jobs.ts) and the
@@ -142,6 +147,31 @@ export async function embedCatalogRows(
           });
         }),
       );
+
+      // Prisma has no native pgvector type, so compositeVector can't go
+      // through the upsert's `data:{}` above — write it separately via raw
+      // SQL. Best-effort: a failure here shouldn't undo the successful
+      // title/description embedding write above, it just means this job
+      // won't show up in nearest-neighbor search until the next backfill run.
+      await Promise.all(
+        chunk.map(async (c, idx) => {
+          const composite = compositeEmbedding({
+            title: flatVectors[idx * 2],
+            description: flatVectors[idx * 2 + 1],
+          });
+          if (!composite.length) return;
+          try {
+            await prisma.$executeRawUnsafe(
+              `UPDATE job_embeddings SET "compositeVector" = $1::vector WHERE "jobId" = $2`,
+              toVectorLiteral(composite),
+              c.job.id,
+            );
+          } catch (err) {
+            console.error(`  compositeVector write failed for ${c.job.id}:`, (err as Error).message);
+          }
+        }),
+      );
+
       embedded += chunk.length;
     } catch (err) {
       console.error(`  embedding chunk failed (${chunk.length} jobs):`, (err as Error).message);

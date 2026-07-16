@@ -170,6 +170,16 @@ model JobEmbedding {
   // of the existing drift history; safe to drop in a future migration.
   skillsEmbedding      Float[] @default([])
 
+  // pgvector column — average of titleEmbedding/descriptionEmbedding (same
+  // math as scoring.ts's compositeEmbedding()), stored as a real `vector`
+  // type so Postgres can build an ANN index (ivfflat/HNSW) over it for real
+  // nearest-neighbor retrieval at 1.4M-row scale. Prisma has no native
+  // pgvector type, so this is `Unsupported` — read/write only via
+  // $queryRaw/$executeRaw (see catalog-embedding.ts, rec-lab.service.ts).
+  // Nullable so existing rows aren't invalidated; backfilled separately
+  // (see scripts/backfill-composite-vector.ts).
+  compositeVector Unsupported("vector(384)")?
+
   sourceHash String // hash of title+description, to detect staleness
 
   createdAt DateTime @default(now())
