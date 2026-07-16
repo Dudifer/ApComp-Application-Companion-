@@ -263,6 +263,38 @@ export function summarizeWeightVector(weights: number[], topN = 5): WeightVector
   };
 }
 
+// ── Preference embedding ─────────────────────────────────────────────────────
+//
+// A second, much simpler "who does this user like" signal, deliberately
+// distinct from both the CV embedding (what the resume says) and the CV
+// weight vector above (which CV dimensions matter most). This is just the
+// literal mean of the composite embeddings of every job the user has SAVED,
+// APPLIED to, or hit MORE_LIKE_THIS on — no learning, no decay, no
+// per-dimension weighting of its own. "For now" a plain average; can grow
+// more sophisticated later if that turns out to be too blunt an instrument.
+
+/**
+ * Mean of a set of composite embeddings. Used as the preference embedding
+ * (mean of liked-job composites), but it's a generic "blend N vectors"
+ * helper — nothing here is specific to preferences. Mismatched-length or
+ * empty vectors are dropped rather than throwing, same tolerance as
+ * compositeEmbedding().
+ */
+export function computePreferenceEmbedding(composites: number[][]): number[] {
+  const nonEmpty = composites.filter(c => c.length > 0);
+  if (!nonEmpty.length) return [];
+  const dims = nonEmpty[0].length;
+  const sum = new Array(dims).fill(0);
+  let n = 0;
+  for (const c of nonEmpty) {
+    if (c.length !== dims) continue;
+    for (let i = 0; i < dims; i++) sum[i] += c[i];
+    n++;
+  }
+  if (!n) return [];
+  return sum.map(x => x / n);
+}
+
 export interface LikedJobVector {
   jobId: string;
   title: string;
@@ -290,8 +322,15 @@ export function similarityToLikedJobs(
 
 // ── Final ranking ────────────────────────────────────────────────────────────
 
-/** How much each signal contributes to the final rank. */
-export const RANK_WEIGHTS = { cvSimilarity: 0.45, likedSimilarity: 0.25, interaction: 0.3 };
+/**
+ * How much each signal contributes to the final rank. Rebalanced to make
+ * room for preferenceSimilarity (see computePreferenceEmbedding): cvSimilarity
+ * gave up 0.45->0.35 and likedSimilarity (best-match to a single liked job)
+ * gave up 0.25->0.15, since the new mean-of-liked-jobs signal captures
+ * similar ground more robustly (less sensitive to one outlier liked job).
+ * interaction stays at 0.3 — still the most direct behavioral signal.
+ */
+export const RANK_WEIGHTS = { cvSimilarity: 0.35, likedSimilarity: 0.15, preferenceSimilarity: 0.2, interaction: 0.3 };
 
 /**
  * How hard a job gets docked for resembling something the user explicitly
@@ -316,6 +355,8 @@ export interface Candidate<J> {
   cvSimilarity: SimilarityBreakdown;
   likedSimilarity: number;
   mostSimilarLikedJob?: LikedJobMatch;
+  /** Cosine similarity to the mean of the user's liked-job composites (see computePreferenceEmbedding) — 0 if they have no liked jobs yet. */
+  preferenceSimilarity: number;
   /** How similar this job is to something the user hit "less like this" on. 0 if they never have. */
   dislikedSimilarity: number;
   mostSimilarDislikedJob?: LikedJobMatch;
@@ -355,6 +396,7 @@ export function rankCandidates<J>(
     const blended =
       c.cvSimilarity.combined * RANK_WEIGHTS.cvSimilarity +
       c.likedSimilarity * RANK_WEIGHTS.likedSimilarity +
+      c.preferenceSimilarity * RANK_WEIGHTS.preferenceSimilarity +
       interactionScore * RANK_WEIGHTS.interaction;
     const finalScore = Math.round(blended - c.dislikedSimilarity * DISLIKE_PENALTY_WEIGHT);
     return { ...c, interactionScore, finalScore, novelty: false };

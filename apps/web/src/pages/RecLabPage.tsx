@@ -162,6 +162,15 @@ function RecLabCard({
           )}
 
           <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '14px 0 8px' }}>
+            Preference embed
+          </div>
+          <ScoreBar label="Match to mean of liked jobs" value={explanation.preferenceSimilarity} />
+          <div style={{ fontSize: 12, color: 'var(--ink-tertiary)' }}>
+            The plain average of every job vector you've saved, applied to, or hit "more like this" on —
+            a simpler, aggregate taste signal alongside the best-match score above.
+          </div>
+
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '14px 0 8px' }}>
             Similarity to jobs you said "less like this" to
           </div>
           <ScoreBar label="Best match" value={explanation.similarityToDislikedJobs} />

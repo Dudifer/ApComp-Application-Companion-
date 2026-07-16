@@ -23,6 +23,9 @@ import {
   applyMostRecentSuppression,
   computeCvSimilarity,
   compositeEmbedding,
+  computePreferenceEmbedding,
+  cosineSimilarity,
+  toPercent,
   similarityToLikedJobs,
   rankCandidates,
   computeCvWeightVector,
@@ -539,6 +542,17 @@ export class RecLabService {
     const likedJobVectors = toVectors(likedJobEmbeddingRows).map(lj => ({ ...lj, composite: weighted(lj.composite) }));
     const dislikedJobVectors = toVectors(dislikedJobEmbeddingRows).map(dj => ({ ...dj, composite: weighted(dj.composite) }));
 
+    // The "preference embed" — literally just the mean of the user's liked
+    // (SAVED/APPLIED/MORE_LIKE_THIS) job composites, in the same (optionally
+    // cvWeights-reweighted) space as jobComposite below, so it's directly
+    // comparable. Deliberately simpler than likedSimilarity's best-match
+    // search: one aggregate "this is roughly what I respond to" direction,
+    // alongside the CV weight vector, rather than per-job lookups. Empty
+    // (and every preferenceSimilarity below 0) until the user has liked
+    // at least one job.
+    const likedJobIdSet = new Set(likedJobVectors.map(lj => lj.jobId));
+    const preferenceEmbedding = computePreferenceEmbedding(likedJobVectors.map(lj => lj.composite));
+
     const candidates: Candidate<Job>[] = jobs.map(job => {
       const fields = jobEmbeddings.get(job.id);
       const cvSimilarity = cvEmbeddings && fields
@@ -555,6 +569,18 @@ export class RecLabService {
       const { similarity: dislikedSimilarity, best: mostSimilarDislikedJob } = jobComposite.length
         ? similarityToLikedJobs(jobComposite, otherDisliked)
         : { similarity: 0, best: undefined };
+
+      // Self-excluding, same as otherLiked/otherDisliked above: if this job
+      // is itself one of the liked jobs, recompute the mean without it so a
+      // liked job's own preferenceSimilarity isn't inflated by including
+      // itself in the average. Cheap in practice — the liked-jobs list is
+      // small — and only actually recomputes for jobs that need it.
+      const jobPreferenceEmbedding = likedJobIdSet.has(job.id)
+        ? computePreferenceEmbedding(otherLiked.map(lj => lj.composite))
+        : preferenceEmbedding;
+      const preferenceSimilarity = jobComposite.length && jobPreferenceEmbedding.length
+        ? toPercent(cosineSimilarity(jobComposite, jobPreferenceEmbedding))
+        : 0;
 
       const interactions = interactionsByJobId.get(job.id) ?? [];
       let interactionScoreRaw = aggregateInteractionScore(
@@ -573,6 +599,7 @@ export class RecLabService {
         cvSimilarity,
         likedSimilarity,
         mostSimilarLikedJob,
+        preferenceSimilarity,
         dislikedSimilarity,
         mostSimilarDislikedJob,
         interactionScoreRaw,
@@ -591,6 +618,7 @@ export class RecLabService {
         cvSimilarity: r.cvSimilarity,
         similarityToLikedJobs: r.likedSimilarity,
         mostSimilarLikedJob: r.mostSimilarLikedJob,
+        preferenceSimilarity: r.preferenceSimilarity,
         similarityToDislikedJobs: r.dislikedSimilarity,
         mostSimilarDislikedJob: r.mostSimilarDislikedJob,
         interactionScoreRaw: r.interactionScoreRaw,

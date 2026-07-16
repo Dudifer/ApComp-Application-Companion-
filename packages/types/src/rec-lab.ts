@@ -65,6 +65,8 @@ export interface JobExplanation {
   cvSimilarity: SimilarityBreakdown;
   similarityToLikedJobs: number;
   mostSimilarLikedJob?: LikedJobMatch;
+  /** Cosine similarity to the mean of the user's SAVED/APPLIED/MORE_LIKE_THIS job composites ("preference embed") — 0 if they have no liked jobs yet. */
+  preferenceSimilarity: number;
   /** How similar this job is to something the user hit "less like this" on — 0 if never used. Docks finalScore, doesn't just fail to help it. */
   similarityToDislikedJobs: number;
   mostSimilarDislikedJob?: LikedJobMatch;

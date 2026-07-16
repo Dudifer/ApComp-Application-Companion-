@@ -4,6 +4,7 @@ import {
   SUPPRESSION_TYPES,
   SUPPRESSED_SCORE_FLOOR,
   DISLIKE_PENALTY_WEIGHT,
+  RANK_WEIGHTS,
   CV_WEIGHT_MIN,
   CV_WEIGHT_MAX,
   aggregateInteractionScore,
@@ -12,6 +13,7 @@ import {
   toPercent,
   computeCvSimilarity,
   compositeEmbedding,
+  computePreferenceEmbedding,
   computeCvWeightVector,
   applyWeights,
   summarizeWeightVector,
@@ -239,6 +241,24 @@ describe('computeCvWeightVector / applyWeights / summarizeWeightVector', () => {
   });
 });
 
+describe('computePreferenceEmbedding', () => {
+  it('averages multiple composite vectors', () => {
+    expect(computePreferenceEmbedding([[1, 0], [0, 1]])).toEqual([0.5, 0.5]);
+  });
+  it('returns empty for no vectors', () => {
+    expect(computePreferenceEmbedding([])).toEqual([]);
+  });
+  it('ignores empty vectors mixed in with real ones', () => {
+    expect(computePreferenceEmbedding([[2, 4], []])).toEqual([2, 4]);
+  });
+  it('drops mismatched-length vectors rather than throwing', () => {
+    expect(computePreferenceEmbedding([[1, 1], [1, 1, 1]])).toEqual([1, 1]);
+  });
+  it('a single vector is its own mean', () => {
+    expect(computePreferenceEmbedding([[3, -2]])).toEqual([3, -2]);
+  });
+});
+
 describe('similarityToLikedJobs', () => {
   it('returns 0 and no match when there are no liked jobs', () => {
     const result = similarityToLikedJobs([1, 0], []);
@@ -312,6 +332,7 @@ describe('rankCandidates', () => {
       job: { id: `job-${i}` },
       cvSimilarity: { title: 0, description: 0, combined: 100 - i * 4 },
       likedSimilarity: 50,
+      preferenceSimilarity: 0,
       dislikedSimilarity: 0,
       interactionScoreRaw: 0,
       interactionCount: 0,
@@ -364,12 +385,34 @@ describe('rankCandidates', () => {
       job: { id: 'a' },
       cvSimilarity: { title: 0, description: 0, combined: 80 },
       likedSimilarity: 0,
+      preferenceSimilarity: 0,
       dislikedSimilarity: 0,
       interactionScoreRaw: 0,
       interactionCount: 0,
     }]);
-    // 80 * 0.45 + 0 * 0.25 + 50(neutral) * 0.3 = 36 + 0 + 15 = 51
-    expect(withZeroDislike.finalScore).toBe(51);
+    // 80 * 0.35 + 0 * 0.15 + 0 * 0.2 + 50(neutral) * 0.3 = 28 + 0 + 0 + 15 = 43
+    expect(withZeroDislike.finalScore).toBe(43);
+  });
+
+  it('preferenceSimilarity increases the blended score, weighted by RANK_WEIGHTS.preferenceSimilarity', () => {
+    const base: Omit<Candidate<{ id: string }>, 'preferenceSimilarity'> = {
+      job: { id: 'a' },
+      cvSimilarity: { title: 0, description: 0, combined: 0 },
+      likedSimilarity: 0,
+      dislikedSimilarity: 0,
+      interactionScoreRaw: 0,
+      interactionCount: 0,
+    };
+    const [noPreference] = rankCandidates([{ ...base, preferenceSimilarity: 0 }]);
+    const [fullPreference] = rankCandidates([{ ...base, preferenceSimilarity: 100 }]);
+    expect(fullPreference.finalScore).toBeGreaterThan(noPreference.finalScore);
+    expect(fullPreference.finalScore - noPreference.finalScore).toBe(Math.round(100 * RANK_WEIGHTS.preferenceSimilarity));
+  });
+
+  it('RANK_WEIGHTS sums to 1 (no double-counted or missing scoring budget)', () => {
+    const sum = RANK_WEIGHTS.cvSimilarity + RANK_WEIGHTS.likedSimilarity
+      + RANK_WEIGHTS.preferenceSimilarity + RANK_WEIGHTS.interaction;
+    expect(sum).toBeCloseTo(1, 10);
   });
 
   it('docks a candidate that resembles something the user said less-like-this to', () => {
@@ -377,6 +420,7 @@ describe('rankCandidates', () => {
       job: { id: 'a' },
       cvSimilarity: { title: 0, description: 0, combined: 80 },
       likedSimilarity: 0,
+      preferenceSimilarity: 0,
       interactionScoreRaw: 0,
       interactionCount: 0,
     };
@@ -391,13 +435,13 @@ describe('rankCandidates', () => {
       {
         job: { id: 'resembles-disliked' },
         cvSimilarity: { title: 0, description: 0, combined: 80 },
-        likedSimilarity: 50, dislikedSimilarity: 90,
+        likedSimilarity: 50, preferenceSimilarity: 0, dislikedSimilarity: 90,
         interactionScoreRaw: 0, interactionCount: 0,
       },
       {
         job: { id: 'clean' },
         cvSimilarity: { title: 0, description: 0, combined: 80 },
-        likedSimilarity: 50, dislikedSimilarity: 0,
+        likedSimilarity: 50, preferenceSimilarity: 0, dislikedSimilarity: 0,
         interactionScoreRaw: 0, interactionCount: 0,
       },
     ], { noveltyRate: 0 });
