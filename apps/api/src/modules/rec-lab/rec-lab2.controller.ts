@@ -1,4 +1,4 @@
-import { Controller, UseGuards } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
 import { RecLab2Service } from './rec-lab2.service';
 import { AuthenticatedController } from '../../auth/authenticated.controller';
 import { ClerkAuthGuard } from '../../auth/clerk.guard';
@@ -14,5 +14,11 @@ import { ClerkAuthGuard } from '../../auth/clerk.guard';
 export class RecLab2Controller extends AuthenticatedController {
   constructor(private readonly recLab2: RecLab2Service) {
     super();
+  }
+
+  /** Process 2 reads this: the test-dataset.ts jobs, for the Recommended Jobs box. */
+  @Get('recommended')
+  getRecommended() {
+    return this.recLab2.getTestDatasetJobs();
   }
 }

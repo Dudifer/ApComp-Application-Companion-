@@ -7,8 +7,19 @@ import TermsPage from '../pages/TermsPage';
 export function AuthWrapper({ children }: { children: React.ReactNode }) {
   return (
     <Routes>
-      {/* Public routes — always accessible */}
-      <Route path="/home" element={<LandingPage />} />
+      {/* /home is only the logged-out landing page — a signed-in user landing
+          here (e.g. Clerk's post-sign-in redirect defaulting to the current
+          URL) must bounce into the app, or they'd be stuck seeing "Sign in"
+          / "Get started" again while already authenticated. */}
+      <Route
+        path="/home"
+        element={
+          <>
+            <SignedIn><Navigate to="/" replace /></SignedIn>
+            <SignedOut><LandingPage /></SignedOut>
+          </>
+        }
+      />
       <Route path="/terms" element={<TermsPage />} />
 
       {/* App routes — require auth */}
