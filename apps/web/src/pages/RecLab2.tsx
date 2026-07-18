@@ -1,31 +1,82 @@
-import { useState, useEffect, useCallback } from 'react';
-import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-} from 'recharts';
-import type {
-  RankedJob, JobInteractionRecord, InteractionType, TimelinePoint, DismissedJob, WeightVectorSummary,
-} from '@apcomp/types';
-import { useApi } from '../lib/api';
-
 /**
- * Rec Lab — sandbox for the embedding-based recommendation + interaction-
- * scoring system. Lets you see exactly why a job was ranked where it was
- * (CV similarity breakdown + similarity to jobs you've liked before), fire
- * interactions (click/save/apply/more-like-this/ignore/dismiss/less-like-
- * this) and watch the ranking react, and "replay" — edit or remove a past
- * interaction to see how that change ripples through the whole ranking.
+ * Rec Lab 2 — clean rebuild of the Rec Lab sandbox. Starting point: three
+ * empty boxes (recommended / dismissed / saved jobs), filled in
+ * incrementally from here.
  */
+export default function RecLab2Page() {
+  return (
+    <div className="section">
+      <div className="section-header">
+        <div className="section-title">Rec Lab 2</div>
+      </div>
 
-const POSITIVE_TYPES: InteractionType[] = ['CLICKED', 'SAVED', 'APPLIED', 'MORE_LIKE_THIS'];
-const NEGATIVE_TYPES: InteractionType[] = ['IGNORED', 'DISMISSED', 'LESS_LIKE_THIS'];
+      <div style={{ display: 'flex', gap: 16 }}>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 320,
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--ink)',
+            }}
+          >
+            Recommended Jobs
+          </div>
+        </div>
 
-const TYPE_LABELS: Record<InteractionType, string> = {
-  VIEWED: 'Viewed',
-  CLICKED: 'Click',
-  SAVED: 'Save',
-  APPLIED: 'Apply',
-  MORE_LIKE_THIS: 'More like this',
-  IGNORED: 'Ignore',
-  DISMISSED: 'Dismiss',
-  LESS_LIKE_THIS: 'Less like this',
-};
+        <div
+          style={{
+            flex: 1,
+            minHeight: 320,
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--ink)',
+            }}
+          >
+            Dismissed Jobs
+          </div>
+        </div>
+
+        <div
+          style={{
+            flex: 1,
+            minHeight: 320,
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 14,
+              fontWeight: 600,
+              color: 'var(--ink)',
+            }}
+          >
+            Saved Jobs
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

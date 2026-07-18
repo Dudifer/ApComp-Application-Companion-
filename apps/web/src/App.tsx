@@ -9,11 +9,12 @@ import { useJobs } from './hooks/useJobs';
 import JobSearchPage from './pages/JobSearchPage';
 import ResumePage from './pages/ResumePage';
 import RecLabPage from './pages/RecLabPage';
+import RecLab2Page from './pages/RecLab2';
 import { AuthWrapper } from './auth/AuthWrapper';
 import { useApi } from './lib/api';
 
 // const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Resume Demo", "Job Search", "Rec Lab"];
-const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Search", "Rec Lab"];
+const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Search", "Rec Lab", "Rec Lab 2"];
 
 
 
@@ -551,6 +552,8 @@ export default function App() {
             <JobSearchPage onJobSelect={job => setSelectedJob(job)} removedJobIds={removedJobIds} />
           ) : active === 'Rec Lab' ? (
             <RecLabPage />
+          ) : active === 'Rec Lab 2' ? (
+            <RecLab2Page />
           ) : (//active === 'Resume Demo' ? (
           //   <ResumeDemoPage />
           // ) : (

@@ -1,14 +1,12 @@
 import { Module } from '@nestjs/common';
-import { RecLabController } from './rec-lab.controller';
-import { RecLabService } from './rec-lab.service';
-import { EmbeddingService } from './embedding.service';
+import { RecLab2Controller } from './rec-lab2.controller';
+import { RecLab2Service } from './rec-lab2.service';
 import { AuthModule } from '../../auth/auth.module';
-import { JobsModule } from '../jobs/jobs.module';
 
 @Module({
-  imports: [AuthModule, JobsModule],
-  controllers: [RecLabController],
-  providers: [RecLabService, EmbeddingService],
-  exports: [RecLabService, EmbeddingService],
+  imports: [AuthModule],
+  controllers: [RecLab2Controller],
+  providers: [RecLab2Service],
+  exports: [RecLab2Service],
 })
-export class NewRecLabModule {}
+export class RecLab2Module {}
