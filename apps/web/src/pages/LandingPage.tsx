@@ -163,7 +163,7 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="lp-nav">
         <div className="lp-logo">ApComp</div>
-        <button className="lp-nav-signin" onClick={() => openSignIn()}>
+        <button className="lp-nav-signin" onClick={() => openSignIn({ forceRedirectUrl: '/' })}>
           Sign in
         </button>
       </nav>
@@ -176,7 +176,7 @@ export default function LandingPage() {
           ApComp brings together job discovery, resume tailoring, and application tracking —
           so you can spend less time juggling tabs and more time landing interviews.
         </p>
-        <button className="lp-cta" onClick={() => openSignIn()}>
+        <button className="lp-cta" onClick={() => openSignIn({ forceRedirectUrl: '/' })}>
           Get started →
         </button>
       </section>
@@ -249,7 +249,7 @@ export default function LandingPage() {
           <p className="lp-bottom-cta-sub">
             Create a free account and get your dashboard set up in under two minutes.
           </p>
-          <button className="lp-cta" onClick={() => openSignIn()}>
+          <button className="lp-cta" onClick={() => openSignIn({ forceRedirectUrl: '/' })}>
             Get started →
           </button>
         </div>
