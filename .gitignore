@@ -23,7 +23,6 @@ env.*.local
 
 # Generated
 apps/api/generated/
-apps/api/prisma/migrations/
 
 # Editor
 .vscode/settings.json
