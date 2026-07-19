@@ -38,7 +38,7 @@ export default function RecLab2Page() {
         <div className="section-title">Rec Lab 2</div>
       </div>
 
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <Box title="Recommended Jobs" count={recommended.length}>
           {loading ? (
             <Empty>Loading…</Empty>
@@ -84,8 +84,8 @@ function Box({ title, count, children }: { title: string; count?: number; childr
   return (
     <div
       style={{
-        flex: 1,
-        minHeight: 320,
+        width: '100%',
+        minHeight: 200,
         background: 'var(--surface-2)',
         border: '1px solid var(--border)',
         borderRadius: 'var(--radius)',
