@@ -55,7 +55,13 @@ export function catalogRowToJob(row: CatalogRow): Job {
     contractType: 'unknown',
     employmentType: row.employmentType ?? undefined,
     publisher: 'openjobdata',
-    postedAt: row.postedAt?.toISOString() ?? new Date().toISOString(),
+    // row.postedAt is sometimes a genuinely invalid Date (e.g. malformed
+    // source data like "|" instead of a real timestamp) rather than just
+    // null/undefined — isNaN(getTime()) catches that case too, where a bare
+    // `row.postedAt?.toISOString()` would throw RangeError: Invalid time value.
+    postedAt: row.postedAt && !isNaN(row.postedAt.getTime())
+      ? row.postedAt.toISOString()
+      : new Date().toISOString(),
     relevanceScore: 0,
     status: 'new',
   };
