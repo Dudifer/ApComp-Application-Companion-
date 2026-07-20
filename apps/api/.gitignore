@@ -50,8 +50,13 @@ env.production
 .temp
 .tmp
 
-# sql backups 
+# sql backups
 *.sql
+# ...but not Prisma migration files — those are real, tracked source, not
+# backups. Without this exception every migrations/*/migration.sql (and so
+# the whole migration folder, since git doesn't track empty dirs) silently
+# never gets committed.
+!prisma/migrations/**/*.sql
 
 # Runtime data
 pids
