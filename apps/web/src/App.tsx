@@ -559,7 +559,7 @@ export default function App() {
           ) : active === 'Rec Lab' ? (
             <RecLabPage />
           ) : active === 'Rec Lab 2' ? (
-            <RecLab2Page />
+            <RecLab2Page onJobSelect={job => setSelectedJob(job)} />
           ) : (//active === 'Resume Demo' ? (
           //   <ResumeDemoPage />
           // ) : (

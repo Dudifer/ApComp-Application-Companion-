@@ -9,8 +9,14 @@ import { useApi } from '../lib/api';
  * GET /rec-lab2/recommended (process 2), which reads the test-dataset.ts
  * jobs (process 1, on the backend — see RecLab2Service.getTestDatasetJobs).
  * Dismissed/saved are still empty, filled in incrementally from here.
+ *
+ * Clicking a job hands it up to onJobSelect — App.tsx wires this to the
+ * same selectedJob state that renders the app-wide JobDetailPanel, so
+ * clicking a job here opens the exact same description/apply-url/save/
+ * dismiss panel every other job list in the app uses, instead of a
+ * duplicate one-off implementation.
  */
-export default function RecLab2Page() {
+export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) => void }) {
   const api = useApi();
   const [recommended, setRecommended] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,12 +57,17 @@ export default function RecLab2Page() {
               {recommended.map(job => (
                 <div
                   key={job.id}
+                  onClick={() => onJobSelect?.(job)}
                   style={{
                     border: '1px solid var(--border)',
                     borderRadius: 'var(--radius-sm)',
                     background: 'white',
                     padding: '10px 12px',
+                    cursor: onJobSelect ? 'pointer' : 'default',
+                    transition: 'box-shadow 0.15s',
                   }}
+                  onMouseEnter={e => { if (onJobSelect) e.currentTarget.style.boxShadow = 'var(--card-shadow)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
                 >
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{job.title}</div>
                   <div style={{ fontSize: 12, color: 'var(--ink-tertiary)', marginTop: 2 }}>
