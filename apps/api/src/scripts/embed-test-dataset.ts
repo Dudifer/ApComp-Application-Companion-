@@ -1,7 +1,7 @@
 /**
  * embed-test-dataset.ts
  *
- * Two things, both idempotent (safe to re-run any time):
+ * Three things, all idempotent (safe to re-run any time):
  *
  *   1. Embeds any TEST_DATASET (test-dataset.ts) rows that don't already
  *      have a current JobEmbedding — reuses embedCatalogRows(), the same
@@ -13,6 +13,13 @@
  *      not — same cache/staleness check RecLabService.ensureCvEmbeddings
  *      does at request time, just run once up front here instead of lazily
  *      on the next Rec Lab request.
+ *   3. Resets that account's Rec Lab 2 sort state (recLab2SortHash /
+ *      recLab2JobOrder), forcing exactly one fresh re-sort on the next
+ *      Rec Lab 2 load. Necessary because RecLab2Service only re-sorts when
+ *      the CV embedding changes — if step 1 just finished embedding jobs
+ *      that were still missing (e.g. this script got interrupted last
+ *      time), the previously-computed order won't reflect them until
+ *      something tells it to re-sort. This is that something.
  *
  * Usage:
  *   pnpm rec-lab2:embed
@@ -106,12 +113,43 @@ async function embedCv(email: string) {
   console.log('Done.\n');
 }
 
+/**
+ * Forces one fresh re-sort on the next Rec Lab 2 load for this account,
+ * regardless of whether its CV embedding actually changed. Safe/cheap to
+ * call unconditionally — if there's no account or no CV yet, it's a no-op;
+ * if the CV embedding didn't change, RecLab2Service just recomputes the
+ * exact same sort it already had.
+ */
+async function resetRecLab2Sort(email: string) {
+  console.log(`3. Rec Lab 2 sort state for ${email}`);
+  console.log('─'.repeat(60));
+
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    console.log(`No account found with email ${email} — skipping.\n`);
+    return;
+  }
+
+  const row = await prisma.cvProfile.findUnique({ where: { userId: user.id } });
+  if (!row) {
+    console.log(`Account found, but no CV profile uploaded yet — skipping.\n`);
+    return;
+  }
+
+  await prisma.cvProfile.update({
+    where: { userId: user.id },
+    data: { recLab2SortHash: null, recLab2JobOrder: [] },
+  });
+  console.log('Cleared — next Rec Lab 2 load will re-sort using every job embedded as of right now.\n');
+}
+
 async function main() {
   console.log('\nApComp Rec Lab 2 fixture embedding');
   await prisma.$connect();
 
   await embedTestDatasetJobs();
   await embedCv(EMAIL);
+  await resetRecLab2Sort(EMAIL);
 
   await prisma.$disconnect();
   console.log('All done.\n');
