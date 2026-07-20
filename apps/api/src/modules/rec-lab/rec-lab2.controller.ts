@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import { RecLab2Service } from './rec-lab2.service';
 import { AuthenticatedController } from '../../auth/authenticated.controller';
 import { ClerkAuthGuard } from '../../auth/clerk.guard';
@@ -16,9 +16,9 @@ export class RecLab2Controller extends AuthenticatedController {
     super();
   }
 
-  /** Process 2 reads this: the test-dataset.ts jobs, for the Recommended Jobs box. */
+  /** The test-dataset.ts jobs, scored (and once-per-CV-upload sorted) by similarity to the caller's CV — for the Recommended Jobs box. */
   @Get('recommended')
-  getRecommended() {
-    return this.recLab2.getTestDatasetJobs();
+  getRecommended(@Req() req: any) {
+    return this.recLab2.getRecommendedJobs(req.userId);
   }
 }
