@@ -37,12 +37,16 @@ export class RecLab2Service {
    * user's CV embedding via cosine similarity, and — only once per CV
    * upload — sorts the list by that score before returning it.
    *
-   * The "once per upload" part is tracked via CvProfile.recLab2SortHash,
-   * which stores the CV's embeddingSourceHash as of the last sort. A CV
-   * re-upload changes that hash once it's re-embedded below, so the stored
-   * value naturally goes stale and triggers exactly one more re-sort — no
-   * separate "reset the flag" step needed anywhere else (e.g. the resume
-   * upload flow doesn't need to know this feature exists).
+   * The "once per upload" part is tracked via recLab2SortHash (which CV
+   * embedding the stored order was computed against) *and*
+   * recLab2JobOrder (the actual resulting order) together — not a bare
+   * boolean. If only a yes/no flag were persisted, a request that gets
+   * cancelled after the flag is written but before the client receives the
+   * sorted response would leave every future load skipping the sort while
+   * still rendering the unsorted fallback order, with no way to recover
+   * short of re-uploading the CV. Persisting the real order means the very
+   * next load already has the correct, previously-computed order to apply,
+   * regardless of whether any earlier response made it to a client.
    */
   async getRecommendedJobs(clerkId: string): Promise<RecLab2RankedJob[]> {
     const userId = await this.userService.ensureUser(clerkId);
@@ -112,16 +116,42 @@ export class RecLab2Service {
       return { job, similarity: toPercent(cosineSimilarity(cvComposite, jobComposite)) };
     });
 
-    const needsSort = cvRow.recLab2SortHash !== currentHash;
-    if (needsSort) {
-      scored.sort((a, b) => (b.similarity ?? -1) - (a.similarity ?? -1));
-      await this.prisma.cvProfile.update({
-        where: { userId },
-        data: { recLab2SortHash: currentHash },
-      });
-      this.logger.log(`Sorted Rec Lab 2 recommended jobs by CV similarity for user ${userId} (new/changed CV embedding).`);
+    const storedOrder = Array.isArray(cvRow.recLab2JobOrder) ? (cvRow.recLab2JobOrder as string[]) : [];
+    const hasStoredOrder = cvRow.recLab2SortHash === currentHash && storedOrder.length > 0;
+
+    if (hasStoredOrder) {
+      // Already sorted for this exact CV embedding — replay the persisted
+      // order instead of recomputing. (Similarity scores above are always
+      // recomputed fresh regardless, so display stays accurate even for
+      // jobs embedded after the last sort.)
+      return reorderByStoredIds(scored, storedOrder);
     }
+
+    scored.sort((a, b) => (b.similarity ?? -1) - (a.similarity ?? -1));
+    await this.prisma.cvProfile.update({
+      where: { userId },
+      data: {
+        recLab2SortHash: currentHash,
+        recLab2JobOrder: scored.map(s => s.job.id),
+      },
+    });
+    this.logger.log(`Sorted Rec Lab 2 recommended jobs by CV similarity for user ${userId} (new/changed CV embedding).`);
 
     return scored;
   }
+}
+
+/** Reorders `scored` to match `order` (a list of job ids). Anything in `scored` that isn't in `order` — e.g. a job embedded after the last sort — is appended at the end, in whatever order it was already in. */
+function reorderByStoredIds(scored: RecLab2RankedJob[], order: string[]): RecLab2RankedJob[] {
+  const byId = new Map(scored.map(s => [s.job.id, s]));
+  const ordered: RecLab2RankedJob[] = [];
+  for (const id of order) {
+    const item = byId.get(id);
+    if (item) {
+      ordered.push(item);
+      byId.delete(id);
+    }
+  }
+  ordered.push(...byId.values());
+  return ordered;
 }

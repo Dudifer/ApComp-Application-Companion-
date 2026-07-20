@@ -70,13 +70,18 @@ model CvProfile {
   embeddingSourceHash  String? // hash of the text last embedded, so we skip recompute when nothing changed
   embeddingUpdatedAt   DateTime?
 
-  // Rec Lab 2's "sort recommended jobs by CV similarity" acts like a
-  // once-per-upload flag, but instead of a plain boolean it stores the
-  // embeddingSourceHash the recommended list was last sorted against. A
-  // fresh CV upload changes embeddingSourceHash (once re-embedded), so this
-  // naturally goes stale again with no separate reset step needed — null or
-  // a mismatch both mean "not sorted for the current CV embedding yet".
-  recLab2SortHash String?
+  // Rec Lab 2's "sort recommended jobs by CV similarity, once per CV
+  // upload" feature. recLab2SortHash records which CV embeddingSourceHash
+  // recLab2JobOrder (the actual sorted list of job ids) was computed
+  // against — a fresh CV upload changes embeddingSourceHash once
+  // re-embedded, so this naturally goes stale with no separate reset step.
+  // Deliberately persists the real computed order, not just a "sorted:
+  // yes/no" boolean — if that boolean were the only record, a request that
+  // gets cancelled after the flag is written but before the client sees the
+  // sorted response would leave future loads permanently skipping the sort
+  // while still displaying the unsorted fallback order.
+  recLab2SortHash  String?
+  recLab2JobOrder  Json    @default("[]")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

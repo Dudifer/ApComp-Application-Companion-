@@ -80,3 +80,7 @@ email-parse-log.txt
 # Local embedding model weights (~90MB) — downloaded once, cached here so
 # pnpm install/rebuild doesn't wipe it. See embedding.service.ts.
 /.model-cache
+
+# sql backuups
+apcomp_db*.sql
+apcomp_db_backup*.sql
