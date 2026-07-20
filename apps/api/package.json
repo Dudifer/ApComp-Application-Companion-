@@ -25,7 +25,8 @@
     "jobs:import:local": "ts-node -r tsconfig-paths/register src/scripts/import-jobs.ts -- --local-dir=",
     "jobs:embed": "ts-node -r tsconfig-paths/register src/scripts/embed-jobs.ts",
     "jobs:embed:loop": "ts-node -r tsconfig-paths/register src/scripts/embed-jobs-loop.ts",
-    "jobs:backfill-vector": "ts-node -r tsconfig-paths/register src/scripts/backfill-composite-vector.ts"
+    "jobs:backfill-vector": "ts-node -r tsconfig-paths/register src/scripts/backfill-composite-vector.ts",
+    "rec-lab2:embed": "ts-node -r tsconfig-paths/register src/scripts/embed-test-dataset.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.91.1",
