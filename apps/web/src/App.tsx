@@ -64,8 +64,14 @@ export default function App() {
   const [active, setActive] = useState("Dashboard");
 
   const { applications: fetchedApplications, loading, gmailConnected, connectGmail } = useApplications();
-  const [applications, setApplications] = useState(fetchedApplications);  
-  
+  const [applications, setApplications] = useState(fetchedApplications);
+
+  // Midnight at the start of the most recent Sunday (today at midnight, if
+  // today itself is Sunday).
+  const startOfThisWeek = new Date();
+  startOfThisWeek.setHours(0, 0, 0, 0);
+  startOfThisWeek.setDate(startOfThisWeek.getDate() - startOfThisWeek.getDay());
+
   const [tailorJob, setTailorJob] = useState<Job | null>(null);
 
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
@@ -553,7 +559,7 @@ export default function App() {
           ) : active === 'Rec Lab' ? (
             <RecLabPage />
           ) : active === 'Rec Lab 2' ? (
-            <RecLab2Page />
+            <RecLab2Page onJobSelect={job => setSelectedJob(job)} />
           ) : (//active === 'Resume Demo' ? (
           //   <ResumeDemoPage />
           // ) : (
@@ -565,6 +571,7 @@ export default function App() {
               <div className="stats-row">
                 {[
                   { num: String(applications.length), label: "Total Applications" },
+                  { num: String(applications.filter(a => new Date(a.appliedAt) >= startOfThisWeek).length), label: "Filed This Week" },
                   { num: String(applications.filter(a => ['SUBMITTED','APPLIED','VIEWED'].includes(a.status)).length), label: "Pending Response" },
                   { num: String(applications.filter(a => a.status === 'INTERVIEW').length), label: "Interviews Scheduled" },
                   { num: String(applications.filter(a => a.status === 'OFFER').length), label: "Offers Received" },
