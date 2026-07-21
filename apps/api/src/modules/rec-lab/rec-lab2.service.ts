@@ -139,6 +139,30 @@ export class RecLab2Service {
 
     return scored;
   }
+
+  /**
+   * Compare tool: cosine similarity between two test-dataset jobs'
+   * embeddings directly (not against the CV) — reuses the exact same
+   * compositeEmbedding/cosineSimilarity/toPercent math as the CV-match
+   * score above, just with a job composite on both sides instead of one.
+   * Null if either job doesn't have an embedding yet (run `pnpm rec-lab2:embed`).
+   */
+  async compareJobs(jobIdA: string, jobIdB: string): Promise<{ similarity: number | null }> {
+    if (jobIdA === jobIdB) return { similarity: 100 };
+
+    const rows = await this.prisma.jobEmbedding.findMany({
+      where: { jobId: { in: [jobIdA, jobIdB] } },
+    });
+    const rowA = rows.find(r => r.jobId === jobIdA);
+    const rowB = rows.find(r => r.jobId === jobIdB);
+    if (!rowA || !rowB) return { similarity: null };
+
+    const compositeA = compositeEmbedding({ title: rowA.titleEmbedding, description: rowA.descriptionEmbedding });
+    const compositeB = compositeEmbedding({ title: rowB.titleEmbedding, description: rowB.descriptionEmbedding });
+    if (!compositeA.length || !compositeB.length) return { similarity: null };
+
+    return { similarity: toPercent(cosineSimilarity(compositeA, compositeB)) };
+  }
 }
 
 /** Reorders `scored` to match `order` (a list of job ids). Anything in `scored` that isn't in `order` — e.g. a job embedded after the last sort — is appended at the end, in whatever order it was already in. */

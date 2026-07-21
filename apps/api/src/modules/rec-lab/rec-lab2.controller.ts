@@ -1,4 +1,4 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { RecLab2Service } from './rec-lab2.service';
 import { AuthenticatedController } from '../../auth/authenticated.controller';
 import { ClerkAuthGuard } from '../../auth/clerk.guard';
@@ -20,5 +20,11 @@ export class RecLab2Controller extends AuthenticatedController {
   @Get('recommended')
   getRecommended(@Req() req: any) {
     return this.recLab2.getRecommendedJobs(req.userId);
+  }
+
+  /** Compare tool: cosine similarity between two jobs directly (not against the CV). Job ids can contain '/' and ':', hence POST body over query params. */
+  @Post('compare')
+  compareJobs(@Body() body: { jobIdA: string; jobIdB: string }) {
+    return this.recLab2.compareJobs(body.jobIdA, body.jobIdB);
   }
 }
