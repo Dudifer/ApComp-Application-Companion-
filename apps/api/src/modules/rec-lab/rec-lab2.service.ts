@@ -1,17 +1,37 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Job, CvProfile } from '@apcomp/types';
+import type { Job, CvProfile, InteractionType } from '@apcomp/types';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserService } from '../../auth/user.service';
 import { EmbeddingService } from './embedding.service';
 import { TEST_DATASET } from './test-dataset';
 import { catalogRowToJob } from './catalog-embedding';
 import { cvProfileToTexts, hashFieldTexts } from './text';
-import { compositeEmbedding, cosineSimilarity, toPercent, FieldEmbeddings } from './scoring';
+import { compositeEmbedding, cosineSimilarity, toPercent, weightFor, aggregateInteractionScore, FieldEmbeddings } from './scoring';
 
 /** A test-dataset job paired with its cosine-similarity match to the user's CV, 0-100 (or null if there's no CV, or no embedding yet for this particular job). */
 export interface RecLab2RankedJob {
   job: Job;
   similarity: number | null;
+}
+
+export interface RecLab2InteractionRecord {
+  id: string;
+  jobId: string;
+  jobTitle: string;
+  jobCompany?: string;
+  type: InteractionType;
+  weight: number;
+  createdAt: string;
+}
+
+/** One job's interaction history for the "View interaction history" screen — its most recent interactions plus a total score computed the same way (weightFor + aggregateInteractionScore) as the original Rec Lab, just not (yet) fed into any ranking. */
+export interface RecLab2JobHistory {
+  jobId: string;
+  jobTitle: string;
+  jobCompany?: string;
+  score: number;
+  interactionCount: number;
+  recentInteractions: RecLab2InteractionRecord[];
 }
 
 /**
@@ -162,6 +182,81 @@ export class RecLab2Service {
     if (!compositeA.length || !compositeB.length) return { similarity: null };
 
     return { similarity: toPercent(cosineSimilarity(compositeA, compositeB)) };
+  }
+
+  // ── Interactions (tracked, not yet wired into ranking) ──────────────────
+  //
+  // Deliberately its own table (RecLab2Interaction, not JobInteraction) —
+  // see the schema.prisma comment on that model for why sharing the
+  // original table would leak into the live app's dismissed-jobs list and
+  // the original Rec Lab's scoring. Nothing here reads these rows for
+  // ranking; getRecommendedJobs() above is untouched by any of this.
+
+  async logInteraction(
+    clerkId: string,
+    input: { jobId: string; jobTitle: string; jobCompany?: string; type: InteractionType },
+  ): Promise<RecLab2InteractionRecord> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const row = await this.prisma.recLab2Interaction.create({
+      data: {
+        userId,
+        jobId: input.jobId,
+        jobTitle: input.jobTitle,
+        jobCompany: input.jobCompany,
+        type: input.type as any,
+        weight: weightFor(input.type),
+      },
+    });
+    return this.toInteractionRecord(row);
+  }
+
+  /** Grouped by job: each job's most recent `perJobLimit` interactions plus its total score (same weightFor/aggregateInteractionScore math as the original Rec Lab). Jobs with more interactions, then higher score, sort first. */
+  async getInteractionHistory(clerkId: string, perJobLimit = 10): Promise<RecLab2JobHistory[]> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const rows = await this.prisma.recLab2Interaction.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const byJob = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const list = byJob.get(row.jobId) ?? [];
+      list.push(row);
+      byJob.set(row.jobId, list);
+    }
+
+    const history: RecLab2JobHistory[] = [...byJob.entries()].map(([jobId, jobRows]) => ({
+      jobId,
+      jobTitle: jobRows[0].jobTitle,
+      jobCompany: jobRows[0].jobCompany ?? undefined,
+      score: aggregateInteractionScore(
+        jobRows.map(r => ({ weight: r.weight, createdAt: r.createdAt })),
+        { decay: true },
+      ),
+      interactionCount: jobRows.length,
+      recentInteractions: jobRows.slice(0, perJobLimit).map(r => this.toInteractionRecord(r)),
+    }));
+
+    history.sort((a, b) => b.interactionCount - a.interactionCount || b.score - a.score);
+    return history;
+  }
+
+  async resetInteractions(clerkId: string): Promise<{ success: true }> {
+    const userId = await this.userService.ensureUser(clerkId);
+    await this.prisma.recLab2Interaction.deleteMany({ where: { userId } });
+    return { success: true };
+  }
+
+  private toInteractionRecord(row: any): RecLab2InteractionRecord {
+    return {
+      id: row.id,
+      jobId: row.jobId,
+      jobTitle: row.jobTitle,
+      jobCompany: row.jobCompany ?? undefined,
+      type: row.type,
+      weight: row.weight,
+      createdAt: row.createdAt.toISOString(),
+    };
   }
 }
 

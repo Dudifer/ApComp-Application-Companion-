@@ -26,6 +26,7 @@ model User {
   userSettings   UserSettings?
   gmailToken     GmailToken?
   jobInteractions JobInteraction[]
+  recLab2Interactions RecLab2Interaction[]
 
   @@map("users")
 }
@@ -252,6 +253,37 @@ model JobInteraction {
   @@index([userId, jobId])
   @@index([userId, createdAt])
   @@map("job_interactions")
+}
+
+// Rec Lab 2's own interaction ledger — deliberately separate from
+// JobInteraction/DismissedJob rather than reusing them. Those tables have
+// real side effects elsewhere: a JobInteraction of type DISMISSED creates a
+// DismissedJob row (RecLabService.setDismissed), which excludes the job from
+// the *live* recommended-jobs feed, and JobInteraction rows feed directly
+// into RecLabService.rank()'s interaction scoring for the original Rec Lab.
+// Logging Rec Lab 2 test interactions into that same table would silently
+// change live app behavior and the original Rec Lab's ranking — exactly
+// what "shouldn't impact the job recommendation order yet" is guarding
+// against. This table is scored (see scoring.ts's weightFor/
+// aggregateInteractionScore, reused as-is) but nothing reads it for ranking
+// yet — see RecLab2Service.
+model RecLab2Interaction {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  jobId      String // composite Job.id (e.g. "openjobdata-<catalogId>")
+  jobTitle   String
+  jobCompany String?
+
+  type   InteractionType // same enum/weights as the original Rec Lab
+  weight Float
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, jobId])
+  @@index([userId, createdAt])
+  @@map("rec_lab2_interactions")
 }
 
 enum ApplicationStatus {

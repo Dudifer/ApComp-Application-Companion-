@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import type { InteractionType } from '@apcomp/types';
 import { RecLab2Service } from './rec-lab2.service';
 import { AuthenticatedController } from '../../auth/authenticated.controller';
 import { ClerkAuthGuard } from '../../auth/clerk.guard';
@@ -26,5 +27,26 @@ export class RecLab2Controller extends AuthenticatedController {
   @Post('compare')
   compareJobs(@Body() body: { jobIdA: string; jobIdB: string }) {
     return this.recLab2.compareJobs(body.jobIdA, body.jobIdB);
+  }
+
+  /** Logs a Rec Lab 2-only interaction — tracked and scored, but not (yet) read by getRecommended's ranking. */
+  @Post('interactions')
+  logInteraction(
+    @Req() req: any,
+    @Body() body: { jobId: string; jobTitle: string; jobCompany?: string; type: InteractionType },
+  ) {
+    return this.recLab2.logInteraction(req.userId, body);
+  }
+
+  /** Per-job interaction history + score, for the "view interaction history" screen. */
+  @Get('interactions/history')
+  getInteractionHistory(@Req() req: any) {
+    return this.recLab2.getInteractionHistory(req.userId);
+  }
+
+  /** Wipes all of the caller's Rec Lab 2 interactions — the "reset scores" button. */
+  @Post('interactions/reset')
+  resetInteractions(@Req() req: any) {
+    return this.recLab2.resetInteractions(req.userId);
   }
 }
