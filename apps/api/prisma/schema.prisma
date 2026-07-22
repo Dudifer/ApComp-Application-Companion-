@@ -107,6 +107,12 @@ model Application {
   // Email tracking
   lastEmailSubject String?
   lastEmailDate    DateTime?
+  // Gmail API message id for lastEmailSubject/lastEmailDate — lets the UI
+  // deep-link to the actual email (https://mail.google.com/mail/u/0/#all/<id>)
+  // instead of just showing the subject line. Nullable: older rows created
+  // before this field existed, or applications created by other paths, won't
+  // have one.
+  lastEmailId      String?
 
   appliedAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import type { InteractionType } from '@apcomp/types';
 import { RecLab2Service } from './rec-lab2.service';
 import { AuthenticatedController } from '../../auth/authenticated.controller';
@@ -36,6 +36,12 @@ export class RecLab2Controller extends AuthenticatedController {
     @Body() body: { jobId: string; jobTitle: string; jobCompany?: string; type: InteractionType },
   ) {
     return this.recLab2.logInteraction(req.userId, body);
+  }
+
+  /** Toggle-off for the row buttons — deletes the interaction created by the matching toggle-on click. */
+  @Delete('interactions/:id')
+  deleteInteraction(@Req() req: any, @Param('id') id: string) {
+    return this.recLab2.deleteInteraction(req.userId, id);
   }
 
   /** Per-job interaction history + score, for the "view interaction history" screen. */

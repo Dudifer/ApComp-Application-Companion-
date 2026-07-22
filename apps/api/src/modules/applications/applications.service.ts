@@ -16,7 +16,15 @@ export interface ApplicationDto {
   updatedAt: string;
   lastEmailSubject?: string;
   lastEmailDate?: string;
+  lastEmailUrl?: string;
   isAutoRejected: boolean;
+}
+
+/** Deep-link into Gmail's web UI for a given message id. `#all/<id>` (rather
+ * than `#inbox/<id>`) still resolves even if the message has since been
+ * archived, labeled, or moved out of the inbox. */
+function gmailMessageUrl(messageId: string): string {
+  return `https://mail.google.com/mail/u/0/#all/${messageId}`;
 }
 
 @Injectable()
@@ -206,6 +214,7 @@ export class ApplicationsService {
               status: ApplicationStatus[email.status as keyof typeof ApplicationStatus] ?? ApplicationStatus.UNKNOWN,
               lastEmailSubject: email.subject,
               lastEmailDate: email.emailDate,
+              lastEmailId: email.id,
               updatedAt: email.emailDate,
             },
           });
@@ -220,6 +229,7 @@ export class ApplicationsService {
             status: ApplicationStatus[email.status as keyof typeof ApplicationStatus] ?? ApplicationStatus.UNKNOWN,
             lastEmailSubject: email.subject,
             lastEmailDate: email.emailDate,
+            lastEmailId: email.id,
             appliedAt: email.emailDate,
             updatedAt: email.emailDate,
           },
@@ -293,6 +303,7 @@ export class ApplicationsService {
       updatedAt: a.updatedAt.toISOString(),
       lastEmailSubject: a.lastEmailSubject ?? undefined,
       lastEmailDate: a.lastEmailDate?.toISOString() ?? undefined,
+      lastEmailUrl: a.lastEmailId ? gmailMessageUrl(a.lastEmailId) : undefined,
       isAutoRejected: a.status === 'REJECTED' && a.updatedAt < cutoff,
     };
   }

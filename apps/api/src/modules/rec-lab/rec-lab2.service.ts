@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import type { Job, CvProfile, InteractionType } from '@apcomp/types';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserService } from '../../auth/user.service';
@@ -204,10 +204,25 @@ export class RecLab2Service {
         jobTitle: input.jobTitle,
         jobCompany: input.jobCompany,
         type: input.type as any,
-        weight: weightFor(input.type),
+        weight: recLab2WeightFor(input.type),
       },
     });
     return this.toInteractionRecord(row);
+  }
+
+  /**
+   * Toggle-off support for the row buttons — the frontend logs an
+   * interaction on first click (turning the button "on") and deletes that
+   * same row here on second click (turning it back "off"), rather than
+   * stacking up duplicate rows from repeated clicks.
+   */
+  async deleteInteraction(clerkId: string, interactionId: string): Promise<{ success: true }> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const existing = await this.prisma.recLab2Interaction.findUnique({ where: { id: interactionId } });
+    if (!existing) throw new NotFoundException('Interaction not found');
+    if (existing.userId !== userId) throw new ForbiddenException();
+    await this.prisma.recLab2Interaction.delete({ where: { id: interactionId } });
+    return { success: true };
   }
 
   /** Grouped by job: each job's most recent `perJobLimit` interactions plus its total score (same weightFor/aggregateInteractionScore math as the original Rec Lab). Jobs with more interactions, then higher score, sort first. */
@@ -258,6 +273,19 @@ export class RecLab2Service {
       createdAt: row.createdAt.toISOString(),
     };
   }
+}
+
+/**
+ * Rec Lab 2's own weight table — just weightFor() from scoring.ts, except
+ * VIEWED is worth 1 point here instead of 0. Deliberately not changed in
+ * the shared INTERACTION_WEIGHTS constant: that table also backs
+ * RecLabService.rank()'s live scoring for the original Rec Lab, and
+ * bumping VIEWED there would quietly shift every real job's score in the
+ * live app. Overriding it locally keeps that untouched.
+ */
+function recLab2WeightFor(type: InteractionType): number {
+  if (type === 'VIEWED') return 1;
+  return weightFor(type);
 }
 
 /** Reorders `scored` to match `order` (a list of job ids). Anything in `scored` that isn't in `order` — e.g. a job embedded after the last sort — is appended at the end, in whatever order it was already in. */

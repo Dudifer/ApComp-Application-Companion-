@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, MouseEvent } from 'react';
 import type { Job } from '@apcomp/types';
 import { useApi } from '../lib/api';
 
@@ -131,16 +131,45 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
     .filter((r): r is RankedJob => Boolean(r));
 
   // ── Interaction tracking ─────────────────────────────────────────────────
-  const logInteraction = useCallback((job: Job, type: string) => {
+  // Row buttons (👍/👎/♡/✕) toggle: the first click logs an interaction and
+  // highlights the button; clicking again deletes that same interaction and
+  // un-highlights it. Keyed by `${jobId}:${type}` -> the created
+  // interaction's id, so a click always knows whether it's turning a signal
+  // on or off, instead of stacking up a new row every time someone clicks
+  // (or double-clicks) the same button.
+  const [activeInteractions, setActiveInteractions] = useState<Record<string, string>>({});
+
+  const toggleInteraction = useCallback((job: Job, type: string) => {
+    const key = `${job.id}:${type}`;
+    const existingId = activeInteractions[key];
+    if (existingId) {
+      api.del(`/rec-lab2/interactions/${existingId}`)
+        .then(() => setActiveInteractions(prev => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        }))
+        .catch(() => {});
+      return;
+    }
+    api.post('/rec-lab2/interactions', { jobId: job.id, jobTitle: job.title, jobCompany: job.company, type })
+      .then(r => r.json())
+      .then(record => setActiveInteractions(prev => ({ ...prev, [key]: record.id })))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeInteractions]);
+
+  // Opening a job's detail panel isn't a toggle — just a plain log each time.
+  const logViewed = useCallback((job: Job) => {
     api.post('/rec-lab2/interactions', {
-      jobId: job.id, jobTitle: job.title, jobCompany: job.company, type,
+      jobId: job.id, jobTitle: job.title, jobCompany: job.company, type: 'VIEWED',
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleRowClick = (job: Job) => {
     if (compareMode) { toggleSelected(job.id); return; }
-    logInteraction(job, 'VIEWED');
+    logViewed(job);
     onJobSelect?.(job);
   };
 
@@ -360,10 +389,38 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
 
                       {!compareMode && (
                         <div style={{ display: 'flex', gap: 6, marginTop: 8 }} onClick={e => e.stopPropagation()}>
-                          <InteractionButton title="More like this" onClick={() => logInteraction(job, 'MORE_LIKE_THIS')}>👍</InteractionButton>
-                          <InteractionButton title="Less like this" onClick={() => logInteraction(job, 'LESS_LIKE_THIS')}>👎</InteractionButton>
-                          <InteractionButton title="Save" onClick={() => logInteraction(job, 'SAVED')}>♡</InteractionButton>
-                          <InteractionButton title="Dismiss" onClick={() => logInteraction(job, 'DISMISSED')}>✕</InteractionButton>
+                          <InteractionButton
+                            title="More like this"
+                            active={Boolean(activeInteractions[`${job.id}:MORE_LIKE_THIS`])}
+                            activeColor="var(--green)" activeBg="var(--green-light)"
+                            onClick={e => { e.stopPropagation(); toggleInteraction(job, 'MORE_LIKE_THIS'); }}
+                          >
+                            👍
+                          </InteractionButton>
+                          <InteractionButton
+                            title="Less like this"
+                            active={Boolean(activeInteractions[`${job.id}:LESS_LIKE_THIS`])}
+                            activeColor="var(--amber)" activeBg="var(--amber-light)"
+                            onClick={e => { e.stopPropagation(); toggleInteraction(job, 'LESS_LIKE_THIS'); }}
+                          >
+                            👎
+                          </InteractionButton>
+                          <InteractionButton
+                            title="Save"
+                            active={Boolean(activeInteractions[`${job.id}:SAVED`])}
+                            activeColor="var(--accent)" activeBg="var(--accent-light)"
+                            onClick={e => { e.stopPropagation(); toggleInteraction(job, 'SAVED'); }}
+                          >
+                            ♡
+                          </InteractionButton>
+                          <InteractionButton
+                            title="Dismiss"
+                            active={Boolean(activeInteractions[`${job.id}:DISMISSED`])}
+                            activeColor="#991b1b" activeBg="#fef2f2"
+                            onClick={e => { e.stopPropagation(); toggleInteraction(job, 'DISMISSED'); }}
+                          >
+                            ✕
+                          </InteractionButton>
                         </div>
                       )}
                     </div>
@@ -386,15 +443,27 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   );
 }
 
-function InteractionButton({ children, title, onClick }: { children: ReactNode; title: string; onClick: () => void }) {
+function InteractionButton({
+  children, title, onClick, active, activeColor, activeBg,
+}: {
+  children: ReactNode;
+  title: string;
+  onClick: (e: MouseEvent<HTMLButtonElement>) => void;
+  active: boolean;
+  activeColor: string;
+  activeBg: string;
+}) {
   return (
     <button
       title={title}
       onClick={onClick}
       style={{
         fontSize: 12, padding: '3px 8px', borderRadius: 6,
-        border: '1px solid var(--border)', background: 'var(--surface-2)',
-        color: 'var(--ink-secondary)', cursor: 'pointer', lineHeight: 1.4,
+        border: `1px solid ${active ? activeColor : 'var(--border)'}`,
+        background: active ? activeBg : 'var(--surface-2)',
+        color: active ? activeColor : 'var(--ink-secondary)',
+        fontWeight: active ? 700 : 400,
+        cursor: 'pointer', lineHeight: 1.4,
       }}
     >
       {children}

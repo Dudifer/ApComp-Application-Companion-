@@ -10,6 +10,7 @@ export interface Application {
   updatedAt: string;
   lastEmailSubject?: string;
   lastEmailDate?: string;
+  lastEmailUrl?: string;
   isAutoRejected: boolean;
 }
 
