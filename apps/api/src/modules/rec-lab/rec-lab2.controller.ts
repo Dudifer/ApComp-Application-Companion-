@@ -1,4 +1,5 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import type { InteractionType } from '@apcomp/types';
 import { RecLab2Service } from './rec-lab2.service';
 import { AuthenticatedController } from '../../auth/authenticated.controller';
 import { ClerkAuthGuard } from '../../auth/clerk.guard';
@@ -16,9 +17,42 @@ export class RecLab2Controller extends AuthenticatedController {
     super();
   }
 
-  /** Process 2 reads this: the test-dataset.ts jobs, for the Recommended Jobs box. */
+  /** The test-dataset.ts jobs, scored (and once-per-CV-upload sorted) by similarity to the caller's CV — for the Recommended Jobs box. */
   @Get('recommended')
-  getRecommended() {
-    return this.recLab2.getTestDatasetJobs();
+  getRecommended(@Req() req: any) {
+    return this.recLab2.getRecommendedJobs(req.userId);
+  }
+
+  /** Compare tool: cosine similarity between two jobs directly (not against the CV). Job ids can contain '/' and ':', hence POST body over query params. */
+  @Post('compare')
+  compareJobs(@Body() body: { jobIdA: string; jobIdB: string }) {
+    return this.recLab2.compareJobs(body.jobIdA, body.jobIdB);
+  }
+
+  /** Logs a Rec Lab 2-only interaction — tracked and scored, but not (yet) read by getRecommended's ranking. */
+  @Post('interactions')
+  logInteraction(
+    @Req() req: any,
+    @Body() body: { jobId: string; jobTitle: string; jobCompany?: string; type: InteractionType },
+  ) {
+    return this.recLab2.logInteraction(req.userId, body);
+  }
+
+  /** Toggle-off for the row buttons — deletes the interaction created by the matching toggle-on click. */
+  @Delete('interactions/:id')
+  deleteInteraction(@Req() req: any, @Param('id') id: string) {
+    return this.recLab2.deleteInteraction(req.userId, id);
+  }
+
+  /** Per-job interaction history + score, for the "view interaction history" screen. */
+  @Get('interactions/history')
+  getInteractionHistory(@Req() req: any) {
+    return this.recLab2.getInteractionHistory(req.userId);
+  }
+
+  /** Wipes all of the caller's Rec Lab 2 interactions — the "reset scores" button. */
+  @Post('interactions/reset')
+  resetInteractions(@Req() req: any) {
+    return this.recLab2.resetInteractions(req.userId);
   }
 }

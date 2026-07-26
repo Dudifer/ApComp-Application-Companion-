@@ -26,6 +26,7 @@ model User {
   userSettings   UserSettings?
   gmailToken     GmailToken?
   jobInteractions JobInteraction[]
+  recLab2Interactions RecLab2Interaction[]
 
   @@map("users")
 }
@@ -70,6 +71,19 @@ model CvProfile {
   embeddingSourceHash  String? // hash of the text last embedded, so we skip recompute when nothing changed
   embeddingUpdatedAt   DateTime?
 
+  // Rec Lab 2's "sort recommended jobs by CV similarity, once per CV
+  // upload" feature. recLab2SortHash records which CV embeddingSourceHash
+  // recLab2JobOrder (the actual sorted list of job ids) was computed
+  // against — a fresh CV upload changes embeddingSourceHash once
+  // re-embedded, so this naturally goes stale with no separate reset step.
+  // Deliberately persists the real computed order, not just a "sorted:
+  // yes/no" boolean — if that boolean were the only record, a request that
+  // gets cancelled after the flag is written but before the client sees the
+  // sorted response would leave future loads permanently skipping the sort
+  // while still displaying the unsorted fallback order.
+  recLab2SortHash  String?
+  recLab2JobOrder  Json    @default("[]")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -93,6 +107,12 @@ model Application {
   // Email tracking
   lastEmailSubject String?
   lastEmailDate    DateTime?
+  // Gmail API message id for lastEmailSubject/lastEmailDate — lets the UI
+  // deep-link to the actual email (https://mail.google.com/mail/u/0/#all/<id>)
+  // instead of just showing the subject line. Nullable: older rows created
+  // before this field existed, or applications created by other paths, won't
+  // have one.
+  lastEmailId      String?
 
   appliedAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -239,6 +259,37 @@ model JobInteraction {
   @@index([userId, jobId])
   @@index([userId, createdAt])
   @@map("job_interactions")
+}
+
+// Rec Lab 2's own interaction ledger — deliberately separate from
+// JobInteraction/DismissedJob rather than reusing them. Those tables have
+// real side effects elsewhere: a JobInteraction of type DISMISSED creates a
+// DismissedJob row (RecLabService.setDismissed), which excludes the job from
+// the *live* recommended-jobs feed, and JobInteraction rows feed directly
+// into RecLabService.rank()'s interaction scoring for the original Rec Lab.
+// Logging Rec Lab 2 test interactions into that same table would silently
+// change live app behavior and the original Rec Lab's ranking — exactly
+// what "shouldn't impact the job recommendation order yet" is guarding
+// against. This table is scored (see scoring.ts's weightFor/
+// aggregateInteractionScore, reused as-is) but nothing reads it for ranking
+// yet — see RecLab2Service.
+model RecLab2Interaction {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  jobId      String // composite Job.id (e.g. "openjobdata-<catalogId>")
+  jobTitle   String
+  jobCompany String?
+
+  type   InteractionType // same enum/weights as the original Rec Lab
+  weight Float
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, jobId])
+  @@index([userId, createdAt])
+  @@map("rec_lab2_interactions")
 }
 
 enum ApplicationStatus {

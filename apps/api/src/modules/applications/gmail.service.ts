@@ -164,7 +164,7 @@ export class GmailService {
       const msg = await gmail.users.messages.get({
         userId: 'me',
         id: messageId,
-        format: 'full',  // ← change from 'metadata' to 'full' to get body
+        format: 'full',  
         metadataHeaders: ['From', 'Subject', 'Date'],
       });
 
@@ -180,7 +180,7 @@ export class GmailService {
 
       const body = this.extractBody(msg.data.payload);
 
-      const { status, keyword } = detectStatus(subject, body); // ← pass body
+      const { status, keyword } = detectStatus(subject, body); 
       const logLine = `[${status}] keyword="${keyword ?? 'none'}" subject="${subject}"\n`;
       fs.appendFileSync(
         path.join(process.cwd(), 'email-parse-log.txt'),

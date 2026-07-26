@@ -50,8 +50,13 @@ env.production
 .temp
 .tmp
 
-# sql backups 
+# sql backups
 *.sql
+# ...but not Prisma migration files — those are real, tracked source, not
+# backups. Without this exception every migrations/*/migration.sql (and so
+# the whole migration folder, since git doesn't track empty dirs) silently
+# never gets committed.
+!prisma/migrations/**/*.sql
 
 # Runtime data
 pids
@@ -75,3 +80,7 @@ email-parse-log.txt
 # Local embedding model weights (~90MB) — downloaded once, cached here so
 # pnpm install/rebuild doesn't wipe it. See embedding.service.ts.
 /.model-cache
+
+# sql backuups
+apcomp_db*.sql
+apcomp_db_backup*.sql

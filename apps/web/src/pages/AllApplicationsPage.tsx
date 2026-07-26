@@ -10,6 +10,7 @@ interface Application {
   updatedAt: string;
   lastEmailSubject?: string;
   lastEmailDate?: string;
+  lastEmailUrl?: string;
   isAutoRejected: boolean;
 }
 
@@ -106,7 +107,9 @@ export default function AllApplicationsPage() {
         .app-row-left { display: flex; flex-direction: column; gap: 4px; }
         .app-company { font-family: var(--font-display); font-size: 15px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); }
         .app-position { font-size: 13px; color: var(--ink-secondary); }
-        .app-email-subject { font-size: 11px; color: var(--ink-tertiary); margin-top: 4px; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 500px; }
+        .app-email-subject { font-size: 11px; color: var(--ink-tertiary); margin-top: 4px; font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 500px; display: flex; align-items: center; gap: 6px; }
+        .app-email-link { font-style: normal; color: var(--accent); text-decoration: none; flex-shrink: 0; }
+        .app-email-link:hover { text-decoration: underline; }
 
         .app-row-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
         .app-date { font-size: 11px; color: var(--ink-tertiary); white-space: nowrap; }
@@ -158,7 +161,20 @@ export default function AllApplicationsPage() {
                 <div className="app-company">{app.company}</div>
                 {app.position && <div className="app-position">{app.position}</div>}
                 {app.lastEmailSubject && (
-                  <div className="app-email-subject">"{app.lastEmailSubject}"</div>
+                  <div className="app-email-subject">
+                    <span>"{app.lastEmailSubject}"</span>
+                    {app.lastEmailUrl && (
+                      <a
+                        className="app-email-link"
+                        href={app.lastEmailUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        Open email ↗
+                      </a>
+                    )}
+                  </div>
                 )}
               </div>
               <div className="app-row-right">
