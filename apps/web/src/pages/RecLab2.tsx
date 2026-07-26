@@ -50,6 +50,12 @@ const REDUCTION_METHODS = [
   { key: 'tsne', label: 't-SNE' },
 ] as const;
 
+/** Mirrors the API's high/low score-bucket split (score > 10 / < -10) — jobs in between are excluded as noise for a "does the embedding space separate my likes from my dislikes" plot. */
+const SCORE_BUCKETS = [
+  { key: 'high', label: 'High score (>10)' },
+  { key: 'low', label: 'Low score (<-10)' },
+] as const;
+
 const CATEGORY_STYLE: Record<EmbeddingPoint['category'], { label: string; color: string }> = {
   software: { label: 'Software', color: 'var(--blue)' },
   retail: { label: 'Retail', color: 'var(--amber)' },
@@ -234,10 +240,11 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   // computes all three up front so switching methods is just a re-render,
   // no re-fetch.
   const [showEmbeddingsPlot, setShowEmbeddingsPlot] = useState(false);
-  const [embeddingPoints, setEmbeddingPoints] = useState<EmbeddingPoint[]>([]);
+  const [embeddingBuckets, setEmbeddingBuckets] = useState<{ high: EmbeddingPoint[]; low: EmbeddingPoint[] }>({ high: [], low: [] });
   const [embeddingsLoading, setEmbeddingsLoading] = useState(false);
   const [embeddingsError, setEmbeddingsError] = useState<string | null>(null);
   const [reductionMethod, setReductionMethod] = useState<'pca' | 'umap' | 'tsne'>('pca');
+  const [scoreBucket, setScoreBucket] = useState<'high' | 'low'>('high');
 
   const fetchEmbeddingsPlot = useCallback(() => {
     setEmbeddingsLoading(true);
@@ -247,7 +254,10 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
         if (!r.ok) throw new Error(`Failed to load embeddings plot (${r.status})`);
         return r.json();
       })
-      .then(data => setEmbeddingPoints(Array.isArray(data) ? data : []))
+      .then(data => setEmbeddingBuckets({
+        high: Array.isArray(data?.high) ? data.high : [],
+        low: Array.isArray(data?.low) ? data.low : [],
+      }))
       .catch(err => setEmbeddingsError(err.message ?? 'Failed to load embeddings plot'))
       .finally(() => setEmbeddingsLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -299,6 +309,8 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
       })
       .catch(err => alert(err.message ?? 'Failed to reset interaction history'));
   };
+
+  const activeEmbeddingPoints = embeddingBuckets[scoreBucket];
 
   return (
     <div className="section">
@@ -436,32 +448,56 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
           )}
         </Box>
       ) : showEmbeddingsPlot ? (
-        <Box title="Embeddings Plot" count={embeddingPoints.length}>
+        <Box title="Embeddings Plot" count={activeEmbeddingPoints.length}>
           {embeddingsLoading ? (
             <Empty>Loading…</Empty>
           ) : embeddingsError ? (
             <Empty tone="error">{embeddingsError}</Empty>
-          ) : embeddingPoints.length === 0 ? (
-            <Empty>No embedded jobs yet — run `pnpm rec-lab2:embed`.</Empty>
           ) : (
             <>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-                {REDUCTION_METHODS.map(({ key, label }) => (
-                  <button
-                    key={key}
-                    onClick={() => setReductionMethod(key)}
-                    style={{
-                      fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 999,
-                      border: `1px solid ${reductionMethod === key ? 'var(--accent)' : 'var(--border)'}`,
-                      background: reductionMethod === key ? 'var(--accent-light)' : 'white',
-                      color: reductionMethod === key ? 'var(--accent)' : 'var(--ink-secondary)',
-                      cursor: 'pointer', fontFamily: 'var(--font-body)',
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {REDUCTION_METHODS.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => setReductionMethod(key)}
+                      style={{
+                        fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 999,
+                        border: `1px solid ${reductionMethod === key ? 'var(--accent)' : 'var(--border)'}`,
+                        background: reductionMethod === key ? 'var(--accent-light)' : 'white',
+                        color: reductionMethod === key ? 'var(--accent)' : 'var(--ink-secondary)',
+                        cursor: 'pointer', fontFamily: 'var(--font-body)',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {SCORE_BUCKETS.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => setScoreBucket(key)}
+                      style={{
+                        fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 999,
+                        border: `1px solid ${scoreBucket === key ? 'var(--blue)' : 'var(--border)'}`,
+                        background: scoreBucket === key ? 'var(--blue-light)' : 'white',
+                        color: scoreBucket === key ? 'var(--blue)' : 'var(--ink-secondary)',
+                        cursor: 'pointer', fontFamily: 'var(--font-body)',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
+              {activeEmbeddingPoints.length === 0 ? (
+                <Empty>
+                  {scoreBucket === 'high'
+                    ? 'No jobs scored above 10 yet — save/react to jobs to build up a score.'
+                    : 'No jobs scored below -10 yet — dismiss/react negatively to jobs to build up a score.'}
+                </Empty>
+              ) : (
               <div style={{ width: '100%', height: 440 }}>
                 <ResponsiveContainer>
                   <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
@@ -474,7 +510,7 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
                       <Scatter
                         key={category}
                         name={CATEGORY_STYLE[category].label}
-                        data={embeddingPoints
+                        data={activeEmbeddingPoints
                           .filter(p => p.category === category)
                           .map(p => ({ x: p[reductionMethod][0], y: p[reductionMethod][1], title: p.title, company: p.company }))}
                         fill={CATEGORY_STYLE[category].color}
@@ -483,6 +519,7 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
                   </ScatterChart>
                 </ResponsiveContainer>
               </div>
+              )}
             </>
           )}
         </Box>

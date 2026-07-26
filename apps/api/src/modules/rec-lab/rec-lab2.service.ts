@@ -9,6 +9,12 @@ import { cvProfileToTexts, hashFieldTexts } from './text';
 import { compositeEmbedding, cosineSimilarity, toPercent, weightFor, aggregateInteractionScore, FieldEmbeddings } from './scoring';
 import { reduceAll } from './embedding-reduction';
 
+// Embeddings plot only shows jobs the user has a strong signal on either
+// way — everything in between (the vast unreacted-to middle) is noise for
+// a "does the embedding space separate my likes from my dislikes" plot.
+const HIGH_SCORE_THRESHOLD = 10;
+const LOW_SCORE_THRESHOLD = -10;
+
 /** A test-dataset job paired with its cosine-similarity match to the user's CV, 0-100 (or null if there's no CV, or no embedding yet for this particular job). */
 export interface RecLab2RankedJob {
   job: Job;
@@ -209,15 +215,20 @@ export class RecLab2Service {
   }
 
   /**
-   * "Embeddings plot" — every embedded test-dataset job, plus the user's CV
-   * if they have one, all reduced from 384 dims down to 2 via PCA, UMAP and
-   * t-SNE (see embedding-reduction.ts for why all three). Everything goes
-   * through the *same* reduction call together, since PCA/UMAP/t-SNE only
-   * produce comparable, meaningfully-positioned coordinates when computed
-   * jointly over the whole point set — reducing the CV separately would put
-   * it in an unrelated 2-d space with no relationship to the job points.
+   * "Embeddings plot" — every embedded test-dataset job the user has
+   * interacted with strongly (interaction score > HIGH_SCORE_THRESHOLD or
+   * < LOW_SCORE_THRESHOLD), plus the user's CV as a reference point, each
+   * reduced from 384 dims down to 2 via PCA, UMAP and t-SNE (see
+   * embedding-reduction.ts for why all three). Split into two independent
+   * buckets — "high" and "low" — because they're conceptually different
+   * job sets (jobs you responded well to vs. jobs you didn't), each of
+   * which needs its *own* reduction call: PCA/UMAP/t-SNE only produce
+   * comparable, meaningfully-positioned coordinates when computed jointly
+   * over one point set, so mixing both buckets into a single reduction
+   * (or reducing the CV separately) would put points in an unrelated 2-d
+   * space with no real relationship to each other.
    */
-  async getEmbeddingsPlot(clerkId: string): Promise<RecLab2EmbeddingPoint[]> {
+  async getEmbeddingsPlot(clerkId: string): Promise<{ high: RecLab2EmbeddingPoint[]; low: RecLab2EmbeddingPoint[] }> {
     const userId = await this.userService.ensureUser(clerkId);
 
     const jobRows = TEST_DATASET.map(row => ({
@@ -228,35 +239,55 @@ export class RecLab2Service {
       where: { jobId: { in: jobRows.map(r => r.job.id) } },
     });
     const embeddingByJobId = new Map(embeddingRows.map(row => [row.jobId, row]));
+    const scoreByJobId = await this.getJobScores(userId);
 
-    const points: { jobId: string; title: string; company: string; category: 'software' | 'retail' | 'cv'; vector: number[] }[] = [];
+    type PlotVector = { jobId: string; title: string; company: string; category: 'software' | 'retail' | 'cv'; vector: number[] };
+    const highJobs: PlotVector[] = [];
+    const lowJobs: PlotVector[] = [];
 
     for (const { job, category } of jobRows) {
       const row = embeddingByJobId.get(job.id);
       if (!row) continue; // not embedded yet (run `pnpm rec-lab2:embed`) — nothing to plot for it
       const composite = compositeEmbedding({ title: row.titleEmbedding, description: row.descriptionEmbedding });
       if (!composite.length) continue;
-      points.push({ jobId: job.id, title: job.title, company: job.company, category, vector: composite });
+
+      const score = scoreByJobId.get(job.id) ?? 0;
+      const point: PlotVector = { jobId: job.id, title: job.title, company: job.company, category, vector: composite };
+      if (score > HIGH_SCORE_THRESHOLD) highJobs.push(point);
+      else if (score < LOW_SCORE_THRESHOLD) lowJobs.push(point);
     }
 
+    let cvPoint: PlotVector | null = null;
     const cvRow = await this.prisma.cvProfile.findUnique({ where: { userId } });
     if (cvRow) {
       const { composite: cvComposite } = await this.ensureCvEmbeddings(userId, cvRow);
       if (cvComposite.length) {
-        points.push({
+        cvPoint = {
           jobId: '__cv__',
           title: cvRow.name ? `${cvRow.name}'s CV` : 'Your CV',
           company: '',
           category: 'cv',
           vector: cvComposite,
-        });
+        };
       }
     }
 
+    return {
+      high: this.reduceBucket(highJobs, cvPoint),
+      low: this.reduceBucket(lowJobs, cvPoint),
+    };
+  }
+
+  /** Runs one score-bucket's job points (plus the shared CV reference point, if any) through PCA/UMAP/t-SNE together. */
+  private reduceBucket(
+    jobs: { jobId: string; title: string; company: string; category: 'software' | 'retail' | 'cv'; vector: number[] }[],
+    cvPoint: { jobId: string; title: string; company: string; category: 'software' | 'retail' | 'cv'; vector: number[] } | null,
+  ): RecLab2EmbeddingPoint[] {
+    const points = cvPoint ? [...jobs, cvPoint] : jobs;
     if (points.length === 0) return [];
     if (points.length < 3) {
       // UMAP/t-SNE both need a handful of neighbors to mean anything —
-      // rather than error out on a near-empty dataset, just place whatever
+      // rather than error out on a near-empty bucket, just place whatever
       // we have at the origin.
       return points.map(p => ({
         jobId: p.jobId, title: p.title, company: p.company, category: p.category,
@@ -269,6 +300,22 @@ export class RecLab2Service {
       jobId: p.jobId, title: p.title, company: p.company, category: p.category,
       pca: pca[i], umap: umap[i], tsne: tsne[i],
     }));
+  }
+
+  /** Every job's interaction score (weightFor/aggregateInteractionScore, same math as getInteractionHistory), keyed by job id — used to sort jobs into the embeddings plot's high/low score buckets. */
+  private async getJobScores(userId: string): Promise<Map<string, number>> {
+    const rows = await this.prisma.recLab2Interaction.findMany({ where: { userId } });
+    const byJob = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const list = byJob.get(row.jobId) ?? [];
+      list.push(row);
+      byJob.set(row.jobId, list);
+    }
+    const scores = new Map<string, number>();
+    for (const [jobId, jobRows] of byJob) {
+      scores.set(jobId, aggregateInteractionScore(jobRows.map(r => ({ weight: r.weight, createdAt: r.createdAt })), { decay: true }));
+    }
+    return scores;
   }
 
   // ── Interactions (tracked, not yet wired into ranking) ──────────────────
