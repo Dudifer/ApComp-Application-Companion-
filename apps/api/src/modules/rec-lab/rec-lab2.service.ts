@@ -214,7 +214,8 @@ export class RecLab2Service {
    * Toggle-off support for the row buttons — the frontend logs an
    * interaction on first click (turning the button "on") and deletes that
    * same row here on second click (turning it back "off"), rather than
-   * stacking up duplicate rows from repeated clicks.
+   * stacking up duplicate rows from repeated clicks. Also reused as the
+   * "delete" side of editing an interaction from the history view.
    */
   async deleteInteraction(clerkId: string, interactionId: string): Promise<{ success: true }> {
     const userId = await this.userService.ensureUser(clerkId);
@@ -223,6 +224,33 @@ export class RecLab2Service {
     if (existing.userId !== userId) throw new ForbiddenException();
     await this.prisma.recLab2Interaction.delete({ where: { id: interactionId } });
     return { success: true };
+  }
+
+  /**
+   * Lets the history view re-classify a logged interaction (e.g. someone
+   * fat-fingered "Dismiss" and meant "Save"). Weight is recomputed from the
+   * new type rather than kept as-is, since weight is supposed to always
+   * reflect "what recLab2WeightFor says for this type" — see the weight
+   * comment on JobInteraction in schema.prisma for the same principle.
+   * Because getInteractionHistory's score is computed live from these rows
+   * (nothing cached), this is the only place that needs to change for the
+   * score to update everywhere it's shown; ranking-propagation (not wired
+   * up yet) will pick this up automatically once it reads this table too.
+   */
+  async updateInteraction(
+    clerkId: string,
+    interactionId: string,
+    newType: InteractionType,
+  ): Promise<RecLab2InteractionRecord> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const existing = await this.prisma.recLab2Interaction.findUnique({ where: { id: interactionId } });
+    if (!existing) throw new NotFoundException('Interaction not found');
+    if (existing.userId !== userId) throw new ForbiddenException();
+    const row = await this.prisma.recLab2Interaction.update({
+      where: { id: interactionId },
+      data: { type: newType as any, weight: recLab2WeightFor(newType) },
+    });
+    return this.toInteractionRecord(row);
   }
 
   /** Grouped by job: each job's most recent `perJobLimit` interactions plus its total score (same weightFor/aggregateInteractionScore math as the original Rec Lab). Jobs with more interactions, then higher score, sort first. */
