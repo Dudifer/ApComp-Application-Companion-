@@ -50,6 +50,12 @@ export class RecLab2Controller extends AuthenticatedController {
     return this.recLab2.deleteInteraction(req.userId, id);
   }
 
+  /** Every currently-"on" row-button toggle (👍/👎/♡/✕), so the frontend can restore that highlighted state on page load instead of it resetting to all-off. */
+  @Get('interactions/active')
+  getActiveToggleInteractions(@Req() req: any) {
+    return this.recLab2.getActiveToggleInteractions(req.userId);
+  }
+
   /** Re-classify a logged interaction from the history screen (e.g. Dismissed -> Saved). Recomputes weight from the new type, so the job's score changes accordingly next time it's read. */
   @Patch('interactions/:id')
   updateInteraction(@Req() req: any, @Param('id') id: string, @Body() body: { type: InteractionType }) {

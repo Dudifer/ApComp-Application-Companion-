@@ -171,6 +171,30 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   // (or double-clicks) the same button.
   const [activeInteractions, setActiveInteractions] = useState<Record<string, string>>({});
 
+  // On load, the row buttons should reflect whatever's actually still in the
+  // DB — otherwise every refresh resets every button to "off" even though
+  // the interaction it represents is still logged (and still counted in the
+  // history/score). GET /rec-lab2/interactions/active returns exactly the
+  // toggle-eligible rows (MORE_LIKE_THIS/LESS_LIKE_THIS/SAVED/DISMISSED)
+  // that are still present, which is exactly what "this button is on" means.
+  useEffect(() => {
+    api.get('/rec-lab2/interactions/active')
+      .then(r => {
+        if (!r.ok) throw new Error(`Failed to load active interactions (${r.status})`);
+        return r.json();
+      })
+      .then((rows: { id: string; jobId: string; type: string }[]) => {
+        if (!Array.isArray(rows)) return;
+        setActiveInteractions(prev => {
+          const next = { ...prev };
+          for (const row of rows) next[`${row.jobId}:${row.type}`] = row.id;
+          return next;
+        });
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const toggleInteraction = useCallback((job: Job, type: string) => {
     const key = `${job.id}:${type}`;
     const existingId = activeInteractions[key];

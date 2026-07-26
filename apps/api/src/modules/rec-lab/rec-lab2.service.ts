@@ -52,6 +52,19 @@ export interface RecLab2EmbeddingPoint {
   tsne: [number, number];
 }
 
+/** One currently-"on" row-button toggle — see getActiveToggleInteractions. */
+export interface RecLab2ActiveToggle {
+  id: string;
+  jobId: string;
+  type: InteractionType;
+}
+
+// The 4 row buttons (👍/👎/♡/✕) are the only interaction types that behave
+// like toggles (logged on first click, deleted on second) — VIEWED/CLICKED/
+// APPLIED/IGNORED are plain one-way logs with nothing to "restore" a UI
+// toggle-state from.
+const TOGGLE_INTERACTION_TYPES: InteractionType[] = ['MORE_LIKE_THIS', 'LESS_LIKE_THIS', 'SAVED', 'DISMISSED'];
+
 /**
  * Rec Lab 2 — clean rebuild, starting from scratch.
  */
@@ -358,6 +371,42 @@ export class RecLab2Service {
     if (existing.userId !== userId) throw new ForbiddenException();
     await this.prisma.recLab2Interaction.delete({ where: { id: interactionId } });
     return { success: true };
+  }
+
+  /**
+   * The row buttons' toggle-state (which of 👍/👎/♡/✕ is "on" for which job)
+   * only ever lived in React state, keyed off whatever the frontend had
+   * created/deleted so far this session — so a page refresh reset it to
+   * all-off even though the underlying interactions were still sitting in
+   * the DB. This lets the frontend rebuild that state on load: one row per
+   * currently-active toggle interaction, i.e. exactly what a toggle button
+   * being "on" means (a not-yet-deleted MORE_LIKE_THIS/LESS_LIKE_THIS/
+   * SAVED/DISMISSED row for that job).
+   */
+  async getActiveToggleInteractions(clerkId: string): Promise<RecLab2ActiveToggle[]> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const rows = await this.prisma.recLab2Interaction.findMany({
+      where: { userId, type: { in: TOGGLE_INTERACTION_TYPES as any } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, jobId: true, type: true },
+    });
+
+    // Under normal toggle-button use there's at most one row per (jobId,
+    // type) at a time — clicking again deletes the existing row rather than
+    // adding a second. But the history view's type-editor could in theory
+    // land two rows on the same (jobId, type) pair (e.g. editing one
+    // interaction's type to match another job's still-active toggle) — keep
+    // only the most recent in that case, since that's what an actual toggle
+    // sequence would leave behind.
+    const seen = new Set<string>();
+    const active: RecLab2ActiveToggle[] = [];
+    for (const row of rows) {
+      const key = `${row.jobId}:${row.type}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      active.push({ id: row.id, jobId: row.jobId, type: row.type });
+    }
+    return active;
   }
 
   /**
