@@ -204,7 +204,11 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   const handleResetScores = () => {
     if (!window.confirm('Clear all Rec Lab 2 interaction history? This can\'t be undone.')) return;
     api.post('/rec-lab2/interactions/reset', {})
-      .then(() => { setHistory([]); if (showHistory) fetchHistory(); })
+      .then(() => {
+        setHistory([]);
+        setActiveInteractions({}); // reset wipes every row's DB interactions, so no button should still show as toggled on
+        if (showHistory) fetchHistory();
+      })
       .catch(err => alert(err.message ?? 'Failed to reset interaction history'));
   };
 
