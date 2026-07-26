@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import type { InteractionType } from '@apcomp/types';
 import { RecLab2Service } from './rec-lab2.service';
 import { AuthenticatedController } from '../../auth/authenticated.controller';
@@ -38,10 +38,16 @@ export class RecLab2Controller extends AuthenticatedController {
     return this.recLab2.logInteraction(req.userId, body);
   }
 
-  /** Toggle-off for the row buttons — deletes the interaction created by the matching toggle-on click. */
+  /** Toggle-off for the row buttons — deletes the interaction created by the matching toggle-on click. Also used to delete a row from the "view interaction history" screen. */
   @Delete('interactions/:id')
   deleteInteraction(@Req() req: any, @Param('id') id: string) {
     return this.recLab2.deleteInteraction(req.userId, id);
+  }
+
+  /** Re-classify a logged interaction from the history screen (e.g. Dismissed -> Saved). Recomputes weight from the new type, so the job's score changes accordingly next time it's read. */
+  @Patch('interactions/:id')
+  updateInteraction(@Req() req: any, @Param('id') id: string, @Body() body: { type: InteractionType }) {
+    return this.recLab2.updateInteraction(req.userId, id, body.type);
   }
 
   /** Per-job interaction history + score, for the "view interaction history" screen. */

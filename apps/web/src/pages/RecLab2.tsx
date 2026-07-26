@@ -201,6 +201,34 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
     });
   };
 
+  // If the interaction being edited/deleted here is also the one a row
+  // button's toggle-state points to (activeInteractions), drop it — otherwise
+  // that button would keep showing "on" for an interaction that no longer
+  // exists (deleted) or no longer means what the button represents (edited).
+  const clearStaleToggleState = (interactionId: string) => {
+    setActiveInteractions(prev => {
+      const entry = Object.entries(prev).find(([, id]) => id === interactionId);
+      if (!entry) return prev;
+      const next = { ...prev };
+      delete next[entry[0]];
+      return next;
+    });
+  };
+
+  const handleEditInteraction = (interactionId: string, newType: string) => {
+    api.patch(`/rec-lab2/interactions/${interactionId}`, { type: newType })
+      .then(r => { if (!r.ok) throw new Error(`Failed to update interaction (${r.status})`); })
+      .then(() => { clearStaleToggleState(interactionId); fetchHistory(); })
+      .catch(err => alert(err.message ?? 'Failed to update interaction'));
+  };
+
+  const handleDeleteInteraction = (interactionId: string) => {
+    api.del(`/rec-lab2/interactions/${interactionId}`)
+      .then(r => { if (!r.ok) throw new Error(`Failed to delete interaction (${r.status})`); })
+      .then(() => { clearStaleToggleState(interactionId); fetchHistory(); })
+      .catch(err => alert(err.message ?? 'Failed to delete interaction'));
+  };
+
   const handleResetScores = () => {
     if (!window.confirm('Clear all Rec Lab 2 interaction history? This can\'t be undone.')) return;
     api.post('/rec-lab2/interactions/reset', {})
@@ -294,11 +322,35 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
                       score: {job.score.toFixed(1)}
                     </span>
                   </div>
-                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {job.recentInteractions.map(i => (
-                      <div key={i.id} style={{ fontSize: 12, color: 'var(--ink-secondary)', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>{INTERACTION_LABELS[i.type] ?? i.type} <span style={{ color: 'var(--ink-tertiary)' }}>({i.weight > 0 ? '+' : ''}{i.weight})</span></span>
-                        <span style={{ color: 'var(--ink-tertiary)' }}>{new Date(i.createdAt).toLocaleString()}</span>
+                      <div key={i.id} style={{ fontSize: 12, color: 'var(--ink-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <select
+                          value={i.type}
+                          onChange={e => handleEditInteraction(i.id, e.target.value)}
+                          style={{
+                            fontSize: 12, fontFamily: 'var(--font-body)', color: 'var(--ink-secondary)',
+                            border: '1px solid var(--border)', borderRadius: 6, padding: '2px 4px',
+                            background: 'white', cursor: 'pointer',
+                          }}
+                        >
+                          {Object.entries(INTERACTION_LABELS).map(([type, label]) => (
+                            <option key={type} value={type}>{label}</option>
+                          ))}
+                        </select>
+                        <span style={{ color: 'var(--ink-tertiary)', whiteSpace: 'nowrap' }}>({i.weight > 0 ? '+' : ''}{i.weight})</span>
+                        <span style={{ color: 'var(--ink-tertiary)', flex: 1, textAlign: 'right' }}>{new Date(i.createdAt).toLocaleString()}</span>
+                        <button
+                          title="Delete this interaction"
+                          onClick={() => handleDeleteInteraction(i.id)}
+                          style={{
+                            fontSize: 11, padding: '2px 7px', borderRadius: 6,
+                            border: '1px solid var(--border)', background: 'white',
+                            color: '#991b1b', cursor: 'pointer', lineHeight: 1.4,
+                          }}
+                        >
+                          ✕
+                        </button>
                       </div>
                     ))}
                   </div>
