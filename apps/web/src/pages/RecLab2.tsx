@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ReactNode, MouseEvent } from 'react';
 import type { Job } from '@apcomp/types';
+import {
+  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
 import { useApi } from '../lib/api';
 
 /** Mirrors the API's RecLab2RankedJob — a job plus its cosine-similarity match to the CV, 0-100 (or null with no CV / no job embedding yet). */
@@ -29,6 +32,35 @@ interface JobHistory {
   interactionCount: number;
   recentInteractions: InteractionRecord[];
 }
+
+/** Mirrors the API's RecLab2EmbeddingPoint — a job (or the CV) plus its 2-d position under all three reduction methods. */
+interface EmbeddingPoint {
+  jobId: string;
+  title: string;
+  company: string;
+  category: 'software' | 'retail' | 'cv';
+  pca: [number, number];
+  umap: [number, number];
+  tsne: [number, number];
+}
+
+const REDUCTION_METHODS = [
+  { key: 'pca', label: 'PCA' },
+  { key: 'umap', label: 'UMAP' },
+  { key: 'tsne', label: 't-SNE' },
+] as const;
+
+/** Mirrors the API's high/low score-bucket split (score > 10 / < -10) — jobs in between are excluded as noise for a "does the embedding space separate my likes from my dislikes" plot. */
+const SCORE_BUCKETS = [
+  { key: 'high', label: 'High score (>10)' },
+  { key: 'low', label: 'Low score (<-10)' },
+] as const;
+
+const CATEGORY_STYLE: Record<EmbeddingPoint['category'], { label: string; color: string }> = {
+  software: { label: 'Software', color: 'var(--blue)' },
+  retail: { label: 'Retail', color: 'var(--amber)' },
+  cv: { label: 'Your CV', color: 'var(--green)' },
+};
 
 const INTERACTION_LABELS: Record<string, string> = {
   VIEWED: 'Viewed',
@@ -196,7 +228,45 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   const toggleHistory = () => {
     setShowHistory(prev => {
       const next = !prev;
-      if (next) fetchHistory();
+      if (next) { setShowEmbeddingsPlot(false); fetchHistory(); } // sub-pages are mutually exclusive
+      return next;
+    });
+  };
+
+  // ── Embeddings plot — replaces the 3 boxes with a scatter of every
+  // embedded job's (and the CV's) composite embedding, squashed from 384
+  // dims down to 2 via whichever of PCA/UMAP/t-SNE is selected (see the
+  // API's embedding-reduction.ts for why all three are offered). The server
+  // computes all three up front so switching methods is just a re-render,
+  // no re-fetch.
+  const [showEmbeddingsPlot, setShowEmbeddingsPlot] = useState(false);
+  const [embeddingBuckets, setEmbeddingBuckets] = useState<{ high: EmbeddingPoint[]; low: EmbeddingPoint[] }>({ high: [], low: [] });
+  const [embeddingsLoading, setEmbeddingsLoading] = useState(false);
+  const [embeddingsError, setEmbeddingsError] = useState<string | null>(null);
+  const [reductionMethod, setReductionMethod] = useState<'pca' | 'umap' | 'tsne'>('pca');
+  const [scoreBucket, setScoreBucket] = useState<'high' | 'low'>('high');
+
+  const fetchEmbeddingsPlot = useCallback(() => {
+    setEmbeddingsLoading(true);
+    setEmbeddingsError(null);
+    api.get('/rec-lab2/embeddings-plot')
+      .then(r => {
+        if (!r.ok) throw new Error(`Failed to load embeddings plot (${r.status})`);
+        return r.json();
+      })
+      .then(data => setEmbeddingBuckets({
+        high: Array.isArray(data?.high) ? data.high : [],
+        low: Array.isArray(data?.low) ? data.low : [],
+      }))
+      .catch(err => setEmbeddingsError(err.message ?? 'Failed to load embeddings plot'))
+      .finally(() => setEmbeddingsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleEmbeddingsPlot = () => {
+    setShowEmbeddingsPlot(prev => {
+      const next = !prev;
+      if (next) { setShowHistory(false); fetchEmbeddingsPlot(); } // sub-pages are mutually exclusive
       return next;
     });
   };
@@ -240,6 +310,8 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
       .catch(err => alert(err.message ?? 'Failed to reset interaction history'));
   };
 
+  const activeEmbeddingPoints = embeddingBuckets[scoreBucket];
+
   return (
     <div className="section">
       <div className="section-header">
@@ -273,18 +345,34 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
         </div>
 
         {!showHistory && (
-          <button
-            onClick={toggleCompareMode}
-            style={{
-              fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 999,
-              border: `1px solid ${compareMode ? 'var(--green)' : 'var(--border)'}`,
-              background: compareMode ? 'var(--green-light)' : 'white',
-              color: compareMode ? 'var(--green)' : 'var(--ink-secondary)',
-              cursor: 'pointer', fontFamily: 'var(--font-body)',
-            }}
-          >
-            {compareMode ? '✕ Cancel compare' : 'Compare jobs'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={toggleEmbeddingsPlot}
+              style={{
+                fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 999,
+                border: `1px solid ${showEmbeddingsPlot ? 'var(--accent)' : 'var(--border)'}`,
+                background: showEmbeddingsPlot ? 'var(--accent-light)' : 'white',
+                color: showEmbeddingsPlot ? 'var(--accent)' : 'var(--ink-secondary)',
+                cursor: 'pointer', fontFamily: 'var(--font-body)',
+              }}
+            >
+              {showEmbeddingsPlot ? '✕ Close plot' : 'Plot embeddings'}
+            </button>
+            {!showEmbeddingsPlot && (
+              <button
+                onClick={toggleCompareMode}
+                style={{
+                  fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 999,
+                  border: `1px solid ${compareMode ? 'var(--green)' : 'var(--border)'}`,
+                  background: compareMode ? 'var(--green-light)' : 'white',
+                  color: compareMode ? 'var(--green)' : 'var(--ink-secondary)',
+                  cursor: 'pointer', fontFamily: 'var(--font-body)',
+                }}
+              >
+                {compareMode ? '✕ Cancel compare' : 'Compare jobs'}
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -357,6 +445,82 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
                 </div>
               ))}
             </div>
+          )}
+        </Box>
+      ) : showEmbeddingsPlot ? (
+        <Box title="Embeddings Plot" count={activeEmbeddingPoints.length}>
+          {embeddingsLoading ? (
+            <Empty>Loading…</Empty>
+          ) : embeddingsError ? (
+            <Empty tone="error">{embeddingsError}</Empty>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 14 }}>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {REDUCTION_METHODS.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => setReductionMethod(key)}
+                      style={{
+                        fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 999,
+                        border: `1px solid ${reductionMethod === key ? 'var(--accent)' : 'var(--border)'}`,
+                        background: reductionMethod === key ? 'var(--accent-light)' : 'white',
+                        color: reductionMethod === key ? 'var(--accent)' : 'var(--ink-secondary)',
+                        cursor: 'pointer', fontFamily: 'var(--font-body)',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {SCORE_BUCKETS.map(({ key, label }) => (
+                    <button
+                      key={key}
+                      onClick={() => setScoreBucket(key)}
+                      style={{
+                        fontSize: 12, fontWeight: 500, padding: '5px 11px', borderRadius: 999,
+                        border: `1px solid ${scoreBucket === key ? 'var(--blue)' : 'var(--border)'}`,
+                        background: scoreBucket === key ? 'var(--blue-light)' : 'white',
+                        color: scoreBucket === key ? 'var(--blue)' : 'var(--ink-secondary)',
+                        cursor: 'pointer', fontFamily: 'var(--font-body)',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {activeEmbeddingPoints.length === 0 ? (
+                <Empty>
+                  {scoreBucket === 'high'
+                    ? 'No jobs scored above 10 yet — save/react to jobs to build up a score.'
+                    : 'No jobs scored below -10 yet — dismiss/react negatively to jobs to build up a score.'}
+                </Empty>
+              ) : (
+              <div style={{ width: '100%', height: 440 }}>
+                <ResponsiveContainer>
+                  <ScatterChart margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis type="number" dataKey="x" tick={{ fontSize: 11 }} stroke="var(--ink-tertiary)" />
+                    <YAxis type="number" dataKey="y" tick={{ fontSize: 11 }} stroke="var(--ink-tertiary)" />
+                    <Tooltip content={<EmbeddingTooltip />} cursor={{ strokeDasharray: '3 3' }} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {(Object.keys(CATEGORY_STYLE) as EmbeddingPoint['category'][]).map(category => (
+                      <Scatter
+                        key={category}
+                        name={CATEGORY_STYLE[category].label}
+                        data={activeEmbeddingPoints
+                          .filter(p => p.category === category)
+                          .map(p => ({ x: p[reductionMethod][0], y: p[reductionMethod][1], title: p.title, company: p.company }))}
+                        fill={CATEGORY_STYLE[category].color}
+                      />
+                    ))}
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </div>
+              )}
+            </>
           )}
         </Box>
       ) : (
@@ -559,6 +723,23 @@ function Empty({ children, tone }: { children: ReactNode; tone?: 'error' }) {
   return (
     <div style={{ fontSize: 13, color: tone === 'error' ? '#991b1b' : 'var(--ink-tertiary)' }}>
       {children}
+    </div>
+  );
+}
+
+/** Recharts tooltip for the embeddings plot — shows the hovered job's title/company instead of raw x/y coordinates, which mean nothing on their own for any of PCA/UMAP/t-SNE. */
+function EmbeddingTooltip({ active, payload }: any) {
+  if (!active || !payload || !payload.length) return null;
+  const point = payload[0].payload;
+  return (
+    <div
+      style={{
+        background: 'white', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+        padding: '8px 12px', fontSize: 12, boxShadow: 'var(--card-shadow)',
+      }}
+    >
+      <div style={{ fontWeight: 600, color: 'var(--ink)' }}>{point.title}</div>
+      {point.company && <div style={{ color: 'var(--ink-tertiary)', marginTop: 2 }}>{point.company}</div>}
     </div>
   );
 }

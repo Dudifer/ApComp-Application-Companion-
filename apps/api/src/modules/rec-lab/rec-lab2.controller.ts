@@ -29,6 +29,12 @@ export class RecLab2Controller extends AuthenticatedController {
     return this.recLab2.compareJobs(body.jobIdA, body.jobIdB);
   }
 
+  /** Every embedded job (plus the CV, if any) reduced to 2-d via PCA/UMAP/t-SNE, for the "embeddings plot" screen. */
+  @Get('embeddings-plot')
+  getEmbeddingsPlot(@Req() req: any) {
+    return this.recLab2.getEmbeddingsPlot(req.userId);
+  }
+
   /** Logs a Rec Lab 2-only interaction — tracked and scored, but not (yet) read by getRecommended's ranking. */
   @Post('interactions')
   logInteraction(
