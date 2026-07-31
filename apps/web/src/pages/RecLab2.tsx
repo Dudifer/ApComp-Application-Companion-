@@ -62,6 +62,14 @@ const CATEGORY_STYLE: Record<EmbeddingPoint['category'], { label: string; color:
   cv: { label: 'Your CV', color: 'var(--green)' },
 };
 
+// SAVED and DISMISSED double as which box a job sits in (Saved Jobs /
+// Dismissed Jobs / Recommended Jobs) — a job shouldn't be in both boxes at
+// once, so turning one on locally clears the other's toggle state too,
+// mirroring what the backend does server-side (see rec-lab2.service.ts's
+// clearOpposingToggle).
+const OPPOSITE_TOGGLE: Record<string, string> = { SAVED: 'DISMISSED', DISMISSED: 'SAVED' };
+const TOGGLE_TYPES = ['MORE_LIKE_THIS', 'LESS_LIKE_THIS', 'SAVED', 'DISMISSED'];
+
 const INTERACTION_LABELS: Record<string, string> = {
   VIEWED: 'Viewed',
   CLICKED: 'Clicked',
@@ -74,12 +82,16 @@ const INTERACTION_LABELS: Record<string, string> = {
 };
 
 /**
- * Rec Lab 2 — clean rebuild of the Rec Lab sandbox. Three boxes:
- * recommended / dismissed / saved jobs. Recommended is wired up to
- * GET /rec-lab2/recommended, which reads the test-dataset.ts jobs and
- * scores + (once per CV upload) sorts them by similarity to the user's CV
- * embedding — see RecLab2Service.getRecommendedJobs. Dismissed/saved are
- * still empty, filled in incrementally from here.
+ * Rec Lab 2 — clean rebuild of the Rec Lab sandbox. Three boxes: recommended
+ * / saved / dismissed jobs. All three are the same underlying job list from
+ * GET /rec-lab2/recommended (which reads the test-dataset.ts jobs and scores
+ * + (once per CV upload) sorts them by similarity to the user's CV embedding
+ * — see RecLab2Service.getRecommendedJobs) split by each job's current
+ * SAVED/DISMISSED toggle state (see jobBoxOf below) — there's no separate
+ * "saved jobs" or "dismissed jobs" endpoint, a job just moves boxes when its
+ * toggle state changes. SAVED and DISMISSED are mutually exclusive (saving a
+ * dismissed job un-dismisses it, and vice versa — enforced both here and in
+ * rec-lab2.service.ts), so every job is in exactly one box at a time.
  *
  * Clicking a job hands it up to onJobSelect — App.tsx wires this to the
  * same selectedJob state that renders the app-wide JobDetailPanel, so
@@ -195,6 +207,19 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Marks `type` active for `jobId` (used right after logging/editing an
+  // interaction into that type) and — for SAVED/DISMISSED specifically —
+  // drops whichever key represents the opposite box, since the backend just
+  // deleted that opposing row too (see clearOpposingToggle).
+  const setActiveToggle = (jobId: string, type: string, interactionId: string) => {
+    setActiveInteractions(prev => {
+      const next = { ...prev, [`${jobId}:${type}`]: interactionId };
+      const opposite = OPPOSITE_TOGGLE[type];
+      if (opposite) delete next[`${jobId}:${opposite}`];
+      return next;
+    });
+  };
+
   const toggleInteraction = useCallback((job: Job, type: string) => {
     const key = `${job.id}:${type}`;
     const existingId = activeInteractions[key];
@@ -210,7 +235,7 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
     }
     api.post('/rec-lab2/interactions', { jobId: job.id, jobTitle: job.title, jobCompany: job.company, type })
       .then(r => r.json())
-      .then(record => setActiveInteractions(prev => ({ ...prev, [key]: record.id })))
+      .then(record => setActiveToggle(job.id, type, record.id))
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeInteractions]);
@@ -309,10 +334,20 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
     });
   };
 
-  const handleEditInteraction = (interactionId: string, newType: string) => {
+  const handleEditInteraction = (interactionId: string, jobId: string, newType: string) => {
     api.patch(`/rec-lab2/interactions/${interactionId}`, { type: newType })
       .then(r => { if (!r.ok) throw new Error(`Failed to update interaction (${r.status})`); })
-      .then(() => { clearStaleToggleState(interactionId); fetchHistory(); })
+      .then(() => {
+        // Drop whatever key used to point at this interaction (its old
+        // type), then — if it landed on a toggle-eligible type — mark it
+        // active under the new one. This is what makes a job relocate
+        // between the Recommended/Saved/Dismissed boxes when you retype an
+        // interaction from the history screen, not just when clicking a row
+        // button directly.
+        clearStaleToggleState(interactionId);
+        if (TOGGLE_TYPES.includes(newType)) setActiveToggle(jobId, newType, interactionId);
+        fetchHistory();
+      })
       .catch(err => alert(err.message ?? 'Failed to update interaction'));
   };
 
@@ -335,6 +370,33 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   };
 
   const activeEmbeddingPoints = embeddingBuckets[scoreBucket];
+
+  // Which box a job belongs in is derived straight from its SAVED/DISMISSED
+  // toggle state — not a separate flag anywhere — so it's automatically
+  // correct (and automatically persists across reload) for however that
+  // state got set: a row-button click, a history-screen edit, or a reset.
+  const jobBoxOf = (jobId: string): 'saved' | 'dismissed' | 'recommended' => {
+    if (activeInteractions[`${jobId}:DISMISSED`]) return 'dismissed';
+    if (activeInteractions[`${jobId}:SAVED`]) return 'saved';
+    return 'recommended';
+  };
+  const recommendedList = recommended.filter(r => jobBoxOf(r.job.id) === 'recommended');
+  const savedList = recommended.filter(r => jobBoxOf(r.job.id) === 'saved');
+  const dismissedList = recommended.filter(r => jobBoxOf(r.job.id) === 'dismissed');
+
+  const renderJobRow = ({ job, similarity }: RankedJob) => (
+    <JobRow
+      key={job.id}
+      job={job}
+      similarity={similarity}
+      compareMode={compareMode}
+      isSelected={compareMode && selectedIds.includes(job.id)}
+      clickable={compareMode || Boolean(onJobSelect)}
+      activeInteractions={activeInteractions}
+      onRowClick={handleRowClick}
+      onToggleInteraction={toggleInteraction}
+    />
+  );
 
   return (
     <div className="section">
@@ -439,7 +501,7 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
                       <div key={i.id} style={{ fontSize: 12, color: 'var(--ink-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                         <select
                           value={i.type}
-                          onChange={e => handleEditInteraction(i.id, e.target.value)}
+                          onChange={e => handleEditInteraction(i.id, i.jobId, e.target.value)}
                           style={{
                             fontSize: 12, fontFamily: 'var(--font-body)', color: 'var(--ink-secondary)',
                             border: '1px solid var(--border)', borderRadius: 6, padding: '2px 4px',
@@ -549,7 +611,7 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
         </Box>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Box title="Recommended Jobs" count={recommended.length}>
+          <Box title="Recommended Jobs" count={recommendedList.length}>
             {compareMode && (
               <div
                 style={{
@@ -591,96 +653,120 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
               <Empty>Loading…</Empty>
             ) : error ? (
               <Empty tone="error">{error}</Empty>
-            ) : recommended.length === 0 ? (
+            ) : recommendedList.length === 0 ? (
               <Empty>No jobs yet.</Empty>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 480, overflowY: 'auto' }}>
-                {recommended.map(({ job, similarity }) => {
-                  const isSelected = compareMode && selectedIds.includes(job.id);
-                  return (
-                    <div
-                      key={job.id}
-                      onClick={() => handleRowClick(job)}
-                      style={{
-                        border: `1px solid ${isSelected ? 'var(--green)' : 'var(--border)'}`,
-                        borderRadius: 'var(--radius-sm)',
-                        background: isSelected ? 'var(--green-light)' : 'white',
-                        padding: '10px 12px',
-                        cursor: (compareMode || onJobSelect) ? 'pointer' : 'default',
-                        transition: 'box-shadow 0.15s',
-                      }}
-                      onMouseEnter={e => { if (!isSelected && (compareMode || onJobSelect)) e.currentTarget.style.boxShadow = 'var(--card-shadow)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
-                    >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{job.title}</div>
-                        {typeof similarity === 'number' && (
-                          <span
-                            style={{
-                              fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
-                              padding: '2px 8px', borderRadius: 99,
-                              background: isSelected ? 'var(--green)' : 'var(--accent-light)',
-                              color: isSelected ? 'white' : 'var(--accent)',
-                            }}
-                          >
-                            {similarity}% match
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--ink-tertiary)', marginTop: 2 }}>
-                        {job.company}{job.location?.displayName ? ` · ${job.location.displayName}` : ''}
-                      </div>
-
-                      {!compareMode && (
-                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }} onClick={e => e.stopPropagation()}>
-                          <InteractionButton
-                            title="More like this"
-                            active={Boolean(activeInteractions[`${job.id}:MORE_LIKE_THIS`])}
-                            activeColor="var(--green)" activeBg="var(--green-light)"
-                            onClick={e => { e.stopPropagation(); toggleInteraction(job, 'MORE_LIKE_THIS'); }}
-                          >
-                            👍
-                          </InteractionButton>
-                          <InteractionButton
-                            title="Less like this"
-                            active={Boolean(activeInteractions[`${job.id}:LESS_LIKE_THIS`])}
-                            activeColor="var(--amber)" activeBg="var(--amber-light)"
-                            onClick={e => { e.stopPropagation(); toggleInteraction(job, 'LESS_LIKE_THIS'); }}
-                          >
-                            👎
-                          </InteractionButton>
-                          <InteractionButton
-                            title="Save"
-                            active={Boolean(activeInteractions[`${job.id}:SAVED`])}
-                            activeColor="var(--accent)" activeBg="var(--accent-light)"
-                            onClick={e => { e.stopPropagation(); toggleInteraction(job, 'SAVED'); }}
-                          >
-                            ♡
-                          </InteractionButton>
-                          <InteractionButton
-                            title="Dismiss"
-                            active={Boolean(activeInteractions[`${job.id}:DISMISSED`])}
-                            activeColor="#991b1b" activeBg="#fef2f2"
-                            onClick={e => { e.stopPropagation(); toggleInteraction(job, 'DISMISSED'); }}
-                          >
-                            ✕
-                          </InteractionButton>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                {recommendedList.map(renderJobRow)}
               </div>
             )}
           </Box>
 
-          <Box title="Dismissed Jobs">
-            <Empty>No jobs yet.</Empty>
+          <Box title="Saved Jobs" count={savedList.length}>
+            {savedList.length === 0 ? (
+              <Empty>No saved jobs yet — use the ♡ button on a job.</Empty>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 480, overflowY: 'auto' }}>
+                {savedList.map(renderJobRow)}
+              </div>
+            )}
           </Box>
 
-          <Box title="Saved Jobs">
-            <Empty>No jobs yet.</Empty>
+          <Box title="Dismissed Jobs" count={dismissedList.length}>
+            {dismissedList.length === 0 ? (
+              <Empty>No dismissed jobs yet — use the ✕ button on a job.</Empty>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 480, overflowY: 'auto' }}>
+                {dismissedList.map(renderJobRow)}
+              </div>
+            )}
           </Box>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** One job row — shared by the Recommended/Saved/Dismissed boxes so all three render identically (title, CV-match badge, and the 👍/👎/♡/✕ toggle buttons) instead of tripling the same JSX per box. */
+function JobRow({
+  job, similarity, compareMode, isSelected, clickable, activeInteractions, onRowClick, onToggleInteraction,
+}: {
+  job: Job;
+  similarity: number | null;
+  compareMode: boolean;
+  isSelected: boolean;
+  clickable: boolean;
+  activeInteractions: Record<string, string>;
+  onRowClick: (job: Job) => void;
+  onToggleInteraction: (job: Job, type: string) => void;
+}) {
+  return (
+    <div
+      onClick={() => onRowClick(job)}
+      style={{
+        border: `1px solid ${isSelected ? 'var(--green)' : 'var(--border)'}`,
+        borderRadius: 'var(--radius-sm)',
+        background: isSelected ? 'var(--green-light)' : 'white',
+        padding: '10px 12px',
+        cursor: clickable ? 'pointer' : 'default',
+        transition: 'box-shadow 0.15s',
+      }}
+      onMouseEnter={e => { if (!isSelected && clickable) e.currentTarget.style.boxShadow = 'var(--card-shadow)'; }}
+      onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{job.title}</div>
+        {typeof similarity === 'number' && (
+          <span
+            style={{
+              fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+              padding: '2px 8px', borderRadius: 99,
+              background: isSelected ? 'var(--green)' : 'var(--accent-light)',
+              color: isSelected ? 'white' : 'var(--accent)',
+            }}
+          >
+            {similarity}% match
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--ink-tertiary)', marginTop: 2 }}>
+        {job.company}{job.location?.displayName ? ` · ${job.location.displayName}` : ''}
+      </div>
+
+      {!compareMode && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }} onClick={e => e.stopPropagation()}>
+          <InteractionButton
+            title="More like this"
+            active={Boolean(activeInteractions[`${job.id}:MORE_LIKE_THIS`])}
+            activeColor="var(--green)" activeBg="var(--green-light)"
+            onClick={e => { e.stopPropagation(); onToggleInteraction(job, 'MORE_LIKE_THIS'); }}
+          >
+            👍
+          </InteractionButton>
+          <InteractionButton
+            title="Less like this"
+            active={Boolean(activeInteractions[`${job.id}:LESS_LIKE_THIS`])}
+            activeColor="var(--amber)" activeBg="var(--amber-light)"
+            onClick={e => { e.stopPropagation(); onToggleInteraction(job, 'LESS_LIKE_THIS'); }}
+          >
+            👎
+          </InteractionButton>
+          <InteractionButton
+            title="Save"
+            active={Boolean(activeInteractions[`${job.id}:SAVED`])}
+            activeColor="var(--accent)" activeBg="var(--accent-light)"
+            onClick={e => { e.stopPropagation(); onToggleInteraction(job, 'SAVED'); }}
+          >
+            ♡
+          </InteractionButton>
+          <InteractionButton
+            title="Dismiss"
+            active={Boolean(activeInteractions[`${job.id}:DISMISSED`])}
+            activeColor="#991b1b" activeBg="#fef2f2"
+            onClick={e => { e.stopPropagation(); onToggleInteraction(job, 'DISMISSED'); }}
+          >
+            ✕
+          </InteractionButton>
         </div>
       )}
     </div>
