@@ -12,6 +12,14 @@ const dirname = typeof __dirname !== 'undefined' ? __dirname : path.dirname(file
 // More info at: https://storybook.js.org/docs/next/writing-tests/integrations/vitest-addon
 export default defineConfig({
   plugins: [react()],
+  // `vite preview` (used to serve the production build behind the
+  // Cloudflare Tunnel — see apps/api/cloudflared-config.yml) rejects any
+  // request whose Host header isn't localhost by default, as a
+  // DNS-rebinding guard. The tunnel forwards the real "apcomp.us" Host
+  // header through to it, so that has to be explicitly allow-listed.
+  preview: {
+    allowedHosts: ['apcomp.us'],
+  },
   test: {
     projects: [{
       extends: true,
