@@ -65,6 +65,15 @@ export interface RecLab2ActiveToggle {
 // toggle-state from.
 const TOGGLE_INTERACTION_TYPES: InteractionType[] = ['MORE_LIKE_THIS', 'LESS_LIKE_THIS', 'SAVED', 'DISMISSED'];
 
+// SAVED and DISMISSED double as box placement (Saved Jobs / Dismissed Jobs /
+// Recommended Jobs) — a job can't sensibly sit in both boxes at once, so
+// activating one has to retract the other rather than the two existing
+// side by side.
+const OPPOSING_TOGGLE: Partial<Record<InteractionType, InteractionType>> = {
+  SAVED: 'DISMISSED',
+  DISMISSED: 'SAVED',
+};
+
 /**
  * Rec Lab 2 — clean rebuild, starting from scratch.
  */
@@ -344,6 +353,7 @@ export class RecLab2Service {
     input: { jobId: string; jobTitle: string; jobCompany?: string; type: InteractionType },
   ): Promise<RecLab2InteractionRecord> {
     const userId = await this.userService.ensureUser(clerkId);
+    await this.clearOpposingToggle(userId, input.jobId, input.type);
     const row = await this.prisma.recLab2Interaction.create({
       data: {
         userId,
@@ -355,6 +365,32 @@ export class RecLab2Service {
       },
     });
     return this.toInteractionRecord(row);
+  }
+
+  /**
+   * SAVED and DISMISSED are mutually exclusive — saving a dismissed job
+   * un-dismisses it and vice versa, so a job never sits in both the Saved
+   * and Dismissed boxes at once. Deletes the opposing row (if any) for this
+   * job before the new one is created/edited in; `excludeId` skips the row
+   * being edited itself (updateInteraction reuses this before changing a
+   * row's own type, so it shouldn't delete the row it's about to update).
+   */
+  private async clearOpposingToggle(
+    userId: string,
+    jobId: string,
+    type: InteractionType,
+    excludeId?: string,
+  ): Promise<void> {
+    const opposing = OPPOSING_TOGGLE[type];
+    if (!opposing) return;
+    await this.prisma.recLab2Interaction.deleteMany({
+      where: {
+        userId,
+        jobId,
+        type: opposing as any,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
   }
 
   /**
@@ -429,6 +465,10 @@ export class RecLab2Service {
     const existing = await this.prisma.recLab2Interaction.findUnique({ where: { id: interactionId } });
     if (!existing) throw new NotFoundException('Interaction not found');
     if (existing.userId !== userId) throw new ForbiddenException();
+    // Same SAVED/DISMISSED mutual exclusion as logInteraction — editing a
+    // row's type to SAVED should un-dismiss that job (and vice versa), not
+    // leave it in both boxes.
+    await this.clearOpposingToggle(userId, existing.jobId, newType, interactionId);
     const row = await this.prisma.recLab2Interaction.update({
       where: { id: interactionId },
       data: { type: newType as any, weight: recLab2WeightFor(newType) },
