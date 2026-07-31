@@ -121,7 +121,6 @@ export class ApplicationsService {
   }
 
   async getDashboardApplications(clerkId: string): Promise<ApplicationDto[]> {
-    // Pass clerkId directly — getApplications handles resolution
     const all = await this.getApplications(clerkId);
     return all.filter(a => !['REJECTED', 'WITHDRAWN'].includes(a.status));
   }

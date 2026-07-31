@@ -102,7 +102,7 @@ model Application {
   // Optional links
   jobUrl        String?
   jobExternalId String?
-  jobSource     String? // 'adzuna' | 'jsearch'
+  jobSource     String?
 
   // Email tracking
   lastEmailSubject String?

@@ -115,7 +115,7 @@ export class GmailService {
     // Build query — last 6 months, job-related keywords
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    const afterDate = sixMonthsAgo.toISOString().slice(0, 10).replace(/-/g, '/'); // YYYY/MM/DD
+    const afterDate = sixMonthsAgo.toISOString().slice(0, 10).replace(/-/g, '/'); 
 
     const filterQuery = filters.map(k => `"${k}"`).join(' OR ');
     const query = `after:${afterDate} (${filterQuery}) ${excludeSenders} ${excludeSubjects}`;
