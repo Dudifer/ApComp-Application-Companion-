@@ -4,6 +4,7 @@ import { GmailService, GmailTokens, JOB_EMAIL_FILTERS } from './gmail.service';
 import { ApplicationStatus } from '../../../generated/prisma';
 import { BadRequestException } from '@nestjs/common/exceptions/bad-request.exception';
 import { UserService } from '../../auth/user.service';
+import { DEMO_CLERK_ID } from '../demo/demo.constants';
 
 const AUTO_REJECT_DAYS = 60;
 
@@ -91,6 +92,12 @@ export class ApplicationsService {
   }
 
   async isGmailConnected(clerkId: string): Promise<boolean> {
+    // The demo account shows its seeded fake applications as if Gmail were
+    // already connected — no real GmailToken row, no OAuth flow, and no
+    // scrape ever actually runs for it (scrapeEmails() no-ops without
+    // tokens; see the comment there).
+    if (clerkId === DEMO_CLERK_ID) return true;
+
     const dbUserId = await this.resolveUserId(clerkId);
     const row = await this.prisma.gmailToken.findUnique({ where: { userId: dbUserId } });
     return !!row?.accessToken;
@@ -173,6 +180,9 @@ export class ApplicationsService {
 
   async scrapeEmails(dbUserId: string): Promise<void> {
     const tokens = await this.loadGmailTokens(dbUserId);
+    // No-op without tokens — this is what makes it safe for isGmailConnected()
+    // to report the demo account as "connected" without a real GmailToken
+    // row: any background scrape trigger lands here and returns immediately.
     if (!tokens) return;
 
     this.logger.log(`Starting Gmail scrape for user ${dbUserId}...`);

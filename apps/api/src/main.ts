@@ -55,6 +55,12 @@ async function bootstrap() {
     message: 'Too many job searches, please wait before trying again.',
   }));
 
+  app.use('/demo/reset', rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 30,
+    message: 'Too many demo resets, please wait before trying again.',
+  }));
+
   await app.listen(process.env.PORT ?? 3000);
 }
 

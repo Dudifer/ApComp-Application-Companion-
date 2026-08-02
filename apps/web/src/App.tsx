@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useUser, useClerk } from '@clerk/clerk-react';
 import type { Job } from '../../../packages/types/src/job';
 import { JobDetailPanel } from './components/JobDetailPanel';
@@ -10,7 +11,7 @@ import JobSearchPage from './pages/JobSearchPage';
 import ResumePage from './pages/ResumePage';
 import RecLab2Page from './pages/RecLab2';
 import { AuthWrapper } from './auth/AuthWrapper';
-import { useApi } from './lib/api';
+import { useApi, isDemoMode, exitDemoMode } from './lib/api';
 
 // const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Resume Demo", "Job Search", "Rec Lab"];
 const NAV_ITEMS = ["Dashboard", "Applications", "Resume Builder", "Job Search", "Rec Lab"];
@@ -35,13 +36,15 @@ const STATUS_ORDER: Record<string, number> = {
 export default function App() {
   const api = useApi();
   const { user } = useUser();
-  const { signOut } = useClerk();
+  const { signOut, openSignIn } = useClerk();
+  const navigate = useNavigate();
+  const demoMode = isDemoMode();
 
   const firstName = user?.firstName ?? user?.username ?? 'there';
-  const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
-  const initials = fullName
+  const fullName = demoMode ? 'Demo Account' : [user?.firstName, user?.lastName].filter(Boolean).join(' ');
+  const initials = demoMode ? 'DA' : (fullName
     ? fullName.split(' ').map(w => w[0].toUpperCase()).slice(0, 2).join('')
-    : (user?.username?.[0]?.toUpperCase() ?? '?');
+    : (user?.username?.[0]?.toUpperCase() ?? '?'));
 
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
   const avatarRef = useRef<HTMLDivElement>(null);
@@ -163,8 +166,9 @@ export default function App() {
             white-space: nowrap;
             display: flex;
             align-items: center;
+            cursor: pointer;
           }
-  
+
           .nav-logo span {
             color: var(--accent);
           }
@@ -498,7 +502,11 @@ export default function App() {
         `}</style>
   
         <nav>
-          <div className="nav-logo">
+          <div
+            className="nav-logo"
+            onClick={() => navigate('/welcome')}
+            title="Go to homepage"
+          >
             Ap<span>Comp</span>
           </div>
           {NAV_ITEMS.map((item) => (
@@ -524,10 +532,19 @@ export default function App() {
                 }}>
                   <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{fullName || user?.username}</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-tertiary)', marginTop: 2 }}>{user?.primaryEmailAddress?.emailAddress}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-tertiary)', marginTop: 2 }}>
+                      {demoMode ? 'Sample data only' : user?.primaryEmailAddress?.emailAddress}
+                    </div>
                   </div>
                   <button
-                    onClick={() => signOut()}
+                    onClick={() => {
+                      if (demoMode) {
+                        exitDemoMode();
+                        navigate('/welcome');
+                      } else {
+                        signOut();
+                      }
+                    }}
                     style={{
                       width: '100%', padding: '10px 14px', background: 'none',
                       border: 'none', cursor: 'pointer', fontSize: 13,
@@ -537,14 +554,36 @@ export default function App() {
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                   >
-                    Sign out
+                    {demoMode ? 'Exit demo' : 'Sign out'}
                   </button>
                 </div>
               )}
             </div>
           </div>
         </nav>
-  
+
+        {demoMode && (
+          <div style={{
+            display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12,
+            flexWrap: 'wrap', padding: '10px 24px', background: 'var(--accent-light)',
+            borderBottom: '1px solid var(--border)', fontSize: 13, color: 'var(--ink-secondary)',
+          }}>
+            <span>You're viewing a live demo with sample data — nothing here is saved to a real account.</span>
+            <button
+              onClick={() => {
+                exitDemoMode();
+                openSignIn({ forceRedirectUrl: '/' });
+              }}
+              style={{
+                fontSize: 12, padding: '4px 14px', borderRadius: 8, background: 'var(--ink)',
+                color: 'white', border: 'none', cursor: 'pointer', fontFamily: 'var(--font-body)',
+              }}
+            >
+              Sign up to save your progress
+            </button>
+          </div>
+        )}
+
         <main style={{ padding: active === 'Resume Builder' ? 0 : undefined }}>
           {active === 'Applications' ? (
             <AllApplicationsPage />
@@ -583,7 +622,15 @@ export default function App() {
                 <div className="section-header">
                   <div className="section-title">Pending Applications</div>
                   <div className="section-count">{applications.length} active</div>
-                  {!gmailConnected ? (
+                  {demoMode ? (
+                  <span style={{
+                    fontSize: 12, padding: '4px 12px', borderRadius: 8,
+                    color: 'var(--ink-tertiary)', border: '1px solid var(--surface-3)',
+                    fontFamily: 'var(--font-body)',
+                  }}>
+                    Sample data
+                  </span>
+                ) : !gmailConnected ? (
                   <button
                     onClick={() => {
                       const GMAIL_ALLOWED = ['jacob.6nyberg@gmail.com', 'sheeshthebot@gmail.com'];
