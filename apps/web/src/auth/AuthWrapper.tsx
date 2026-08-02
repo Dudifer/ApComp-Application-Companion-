@@ -22,6 +22,11 @@ export function AuthWrapper({ children }: { children: React.ReactNode }) {
       />
       <Route path="/terms" element={<TermsPage />} />
 
+      {/* Always shows the landing page, signed in or not — this is where the
+          ApComp logo links to, deliberately bypassing the /home
+          redirect-to-app behavior above. */}
+      <Route path="/welcome" element={<LandingPage />} />
+
       {/* App routes — require auth */}
       <Route
         path="/*"

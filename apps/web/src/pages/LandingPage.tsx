@@ -1,8 +1,21 @@
-import { useClerk } from '@clerk/clerk-react';
-import { Link } from 'react-router-dom';
+import { useClerk, useUser } from '@clerk/clerk-react';
+import { Link, useNavigate } from 'react-router-dom';
 
 export default function LandingPage() {
   const { openSignIn } = useClerk();
+  const { isSignedIn } = useUser();
+  const navigate = useNavigate();
+
+  // Signed-in visitors can land here via the ApComp logo (which always
+  // opens this page). In that case the CTAs should take them into the app
+  // rather than popping the sign-in modal on someone who's already signed in.
+  const handleCta = () => {
+    if (isSignedIn) {
+      navigate('/');
+    } else {
+      openSignIn({ forceRedirectUrl: '/' });
+    }
+  };
 
   return (
     <>
@@ -163,8 +176,8 @@ export default function LandingPage() {
       {/* Nav */}
       <nav className="lp-nav">
         <div className="lp-logo">ApComp</div>
-        <button className="lp-nav-signin" onClick={() => openSignIn({ forceRedirectUrl: '/' })}>
-          Sign in
+        <button className="lp-nav-signin" onClick={handleCta}>
+          {isSignedIn ? 'Dashboard' : 'Sign in'}
         </button>
       </nav>
 
@@ -176,8 +189,8 @@ export default function LandingPage() {
           ApComp brings together job discovery, resume tailoring, and application tracking —
           so you can spend less time juggling tabs and more time landing interviews.
         </p>
-        <button className="lp-cta" onClick={() => openSignIn({ forceRedirectUrl: '/' })}>
-          Get started →
+        <button className="lp-cta" onClick={handleCta}>
+          {isSignedIn ? 'Go to dashboard →' : 'Get started →'}
         </button>
       </section>
 
@@ -249,8 +262,8 @@ export default function LandingPage() {
           <p className="lp-bottom-cta-sub">
             Create a free account and get your dashboard set up in under two minutes.
           </p>
-          <button className="lp-cta" onClick={() => openSignIn({ forceRedirectUrl: '/' })}>
-            Get started →
+          <button className="lp-cta" onClick={handleCta}>
+            {isSignedIn ? 'Go to dashboard →' : 'Get started →'}
           </button>
         </div>
       </div>

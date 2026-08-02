@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useUser, useClerk } from '@clerk/clerk-react';
 import type { Job } from '../../../packages/types/src/job';
 import { JobDetailPanel } from './components/JobDetailPanel';
@@ -36,6 +37,7 @@ export default function App() {
   const api = useApi();
   const { user } = useUser();
   const { signOut } = useClerk();
+  const navigate = useNavigate();
 
   const firstName = user?.firstName ?? user?.username ?? 'there';
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
@@ -163,8 +165,9 @@ export default function App() {
             white-space: nowrap;
             display: flex;
             align-items: center;
+            cursor: pointer;
           }
-  
+
           .nav-logo span {
             color: var(--accent);
           }
@@ -498,7 +501,11 @@ export default function App() {
         `}</style>
   
         <nav>
-          <div className="nav-logo">
+          <div
+            className="nav-logo"
+            onClick={() => navigate('/welcome')}
+            title="Go to homepage"
+          >
             Ap<span>Comp</span>
           </div>
           {NAV_ITEMS.map((item) => (
