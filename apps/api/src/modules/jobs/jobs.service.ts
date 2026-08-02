@@ -8,6 +8,7 @@ import { CompanyEnrichmentService } from './company-enrichment.service';
 import { JobCacheService } from './job-cache.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserService } from '../../auth/user.service';
+import { DEMO_CLERK_ID } from '../demo/demo.constants';
 
 // Fallback title keywords when no CV profile exists
 const FALLBACK_QUERIES = ['software engineer', 'software developer', 'full stack developer'];
@@ -110,9 +111,12 @@ export class JobsService {
   async dailyDeltaRefresh() {
     this.logger.log('Daily delta refresh started');
 
-    // Find all users with a CV profile (they've onboarded and want recommendations)
+    // Find all users with a CV profile (they've onboarded and want recommendations).
+    // Excludes the demo sandbox account — its recommendations are hand-curated
+    // seed data (see DemoService) and reset on every "Demo" click, so a nightly
+    // real-API refresh would just burn Adzuna/OpenJobData quota for nothing.
     const profiles = await this.prisma.cvProfile.findMany({
-      where: { isComplete: true },
+      where: { isComplete: true, user: { clerkId: { not: DEMO_CLERK_ID } } },
       select: { userId: true },
     });
 

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { verifyToken } from '@clerk/backend';
 import { Request } from 'express';
+import { DEMO_CLERK_ID } from '../modules/demo/demo.constants';
 
 @Injectable()
 export class ClerkAuthGuard implements CanActivate {
@@ -18,6 +19,15 @@ export class ClerkAuthGuard implements CanActivate {
 
     if (!token) {
       throw new UnauthorizedException('No auth token provided');
+    }
+
+    // Sandbox bypass for the public "Demo" button (see DemoService) — a
+    // single fixed, low-stakes account with no real data. Only active when
+    // DEMO_ACCESS_TOKEN is explicitly configured; unset means this path is
+    // disabled entirely rather than falling back to a guessable default.
+    if (process.env.DEMO_ACCESS_TOKEN && token === process.env.DEMO_ACCESS_TOKEN) {
+      (request as any).userId = DEMO_CLERK_ID;
+      return true;
     }
 
     try {

@@ -1,10 +1,15 @@
+import { useState } from 'react';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { DEMO_MODE_KEY } from '../lib/api';
+
+const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 export default function LandingPage() {
   const { openSignIn } = useClerk();
   const { isSignedIn } = useUser();
   const navigate = useNavigate();
+  const [demoLoading, setDemoLoading] = useState(false);
 
   // Signed-in visitors can land here via the ApComp logo (which always
   // opens this page). In that case the CTAs should take them into the app
@@ -15,6 +20,22 @@ export default function LandingPage() {
     } else {
       openSignIn({ forceRedirectUrl: '/' });
     }
+  };
+
+  // Tries it before creating an account: resets the shared sandbox account
+  // to a clean, canned state (fake applications + job recommendations +
+  // Jacob's own resume loaded into the resume builder), then drops the
+  // visitor straight into the dashboard as that account.
+  const handleDemo = async () => {
+    setDemoLoading(true);
+    try {
+      await fetch(`${BASE_URL}/demo/reset`, { method: 'POST' });
+    } catch {
+      // Best-effort — even if the reset call fails, let them into the demo
+      // with whatever's already there rather than blocking on it.
+    }
+    localStorage.setItem(DEMO_MODE_KEY, '1');
+    navigate('/');
   };
 
   return (
@@ -90,6 +111,18 @@ export default function LandingPage() {
           transition: opacity 0.15s; letter-spacing: -0.01em;
         }
         .lp-cta:hover { opacity: 0.8; }
+        .lp-cta-row {
+          display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+        }
+        .lp-cta-secondary {
+          display: inline-block; padding: 14px 36px;
+          background: none; color: var(--ink);
+          font-family: var(--font-body); font-size: 15px; font-weight: 500;
+          border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+          transition: background 0.15s; letter-spacing: -0.01em;
+        }
+        .lp-cta-secondary:hover { background: var(--surface-2); }
+        .lp-cta-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
 
         .lp-features {
           background: white; border-top: 1px solid var(--border);
@@ -189,9 +222,16 @@ export default function LandingPage() {
           ApComp brings together job discovery, resume tailoring, and application tracking —
           so you can spend less time juggling tabs and more time landing interviews.
         </p>
-        <button className="lp-cta" onClick={handleCta}>
-          {isSignedIn ? 'Go to dashboard →' : 'Get started →'}
-        </button>
+        <div className="lp-cta-row">
+          <button className="lp-cta" onClick={handleCta}>
+            {isSignedIn ? 'Go to dashboard →' : 'Get started →'}
+          </button>
+          {!isSignedIn && (
+            <button className="lp-cta-secondary" onClick={handleDemo} disabled={demoLoading}>
+              {demoLoading ? 'Loading demo…' : 'Try the demo →'}
+            </button>
+          )}
+        </div>
       </section>
 
       {/* Features */}
