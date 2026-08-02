@@ -17,11 +17,18 @@ async function bootstrap() {
   // and IP detection work correctly.
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
+  // Falls back to the real production domain if DOMAIN isn't set at runtime
+  // (e.g. NODE_ENV wasn't 'production' when pm2 started the process, so
+  // .env.production never got loaded — see the note above main()). Without
+  // this fallback, a missing DOMAIN silently turns into "https://undefined"
+  // and CORS rejects every real origin uniformly, which is a nasty failure
+  // mode to debug since every endpoint breaks the same way at once.
+  const domain = process.env.DOMAIN || 'apcomp.us';
   const allowedOrigins = [
     'http://localhost:5173',
-    `https://${process.env.DOMAIN}`,
-    `https://www.${process.env.DOMAIN}`,
-  ].filter(Boolean);
+    `https://${domain}`,
+    `https://www.${domain}`,
+  ];
 
   app.enableCors({
     origin: (origin, callback) => {
