@@ -263,6 +263,95 @@ export function summarizeWeightVector(weights: number[], topN = 5): WeightVector
   };
 }
 
+// ── Score propagation (Rec Lab 2) ────────────────────────────────────────────
+//
+// An interaction's decayed weight doesn't only count toward the exact job it
+// was logged on — a fraction of it also spreads to other jobs similar enough
+// to it in composite-embedding space, so that liking one job nudges up other
+// jobs like it, and disliking one nudges those down too. This is the "push"
+// counterpart to the original Rec Lab's similarityToLikedJobs "pull" model
+// (which instead has each candidate look up its own best-match similarity to
+// liked/disliked jobs at rank time) — Rec Lab 2 wants each propagated
+// contribution to be an explicit, individually attributable amount rather
+// than folded into one blended ranking term, so it can be reported back
+// ("this job's score includes +1.2 propagated from your SAVED on X") — see
+// RecLab2Service.computeAllJobScores.
+
+/** Jobs need at least this much composite-embedding cosine similarity to an interacted-with job before any of that interaction's weight propagates to them — "a window of x in similarity" around the interacted job. */
+export const PROPAGATION_SIMILARITY_THRESHOLD = 0.75;
+/** At similarity 1.0 (identical embedding), a propagated interaction contributes this fraction of its own decayed weight to the neighbor's score. Scales linearly down to 0 right at the threshold, so propagation strength fades smoothly across the window instead of a hard on/off cliff. */
+export const PROPAGATION_MAX_FRACTION = 0.35;
+
+export interface PropagationSourceEvent {
+  jobId: string;
+  jobTitle: string;
+  jobCompany?: string;
+  type: InteractionType;
+  weight: number;
+  createdAt: string | Date;
+  composite: number[];
+}
+
+/** One neighbor interaction's contribution to a job's propagated score — enough detail to report "this much, from this interaction, on this job, because they're this similar." */
+export interface PropagatedContribution {
+  fromJobId: string;
+  fromJobTitle: string;
+  fromJobCompany?: string;
+  type: InteractionType;
+  /** 0-100 cosine similarity between the two jobs, for display. */
+  similarity: number;
+  /** Signed score amount actually contributed (already decayed + fraction-scaled). */
+  amount: number;
+  createdAt: string;
+}
+
+/**
+ * Every event in `events` similar enough to `targetComposite` to propagate
+ * at all, with the actual (decayed, similarity-scaled) amount each
+ * contributes. `events` should already exclude interactions logged directly
+ * on the target job itself — those count as that job's direct score, not
+ * propagation from a neighbor.
+ */
+export function computePropagatedContributions(
+  targetComposite: number[],
+  events: PropagationSourceEvent[],
+  opts: { decay?: boolean; now?: Date } = {},
+): PropagatedContribution[] {
+  if (!targetComposite.length) return [];
+  const now = opts.now ?? new Date();
+  const decay = opts.decay ?? true;
+
+  const contributions: PropagatedContribution[] = [];
+  for (const event of events) {
+    if (!event.composite.length) continue;
+    const cos = cosineSimilarity(targetComposite, event.composite);
+    if (cos < PROPAGATION_SIMILARITY_THRESHOLD) continue;
+
+    const strength = Math.max(0, Math.min(1,
+      (cos - PROPAGATION_SIMILARITY_THRESHOLD) / (1 - PROPAGATION_SIMILARITY_THRESHOLD),
+    ));
+    const fraction = PROPAGATION_MAX_FRACTION * strength;
+
+    const ageDays = decay
+      ? Math.max(0, (now.getTime() - new Date(event.createdAt).getTime()) / 86_400_000)
+      : 0;
+    const decayFactor = decay ? Math.pow(0.5, ageDays / DECAY_HALF_LIFE_DAYS) : 1;
+    const amount = event.weight * decayFactor * fraction;
+
+    if (Math.abs(amount) < 0.01) continue; // negligible — not worth reporting or summing
+    contributions.push({
+      fromJobId: event.jobId,
+      fromJobTitle: event.jobTitle,
+      fromJobCompany: event.jobCompany,
+      type: event.type,
+      similarity: toPercent(cos),
+      amount,
+      createdAt: new Date(event.createdAt).toISOString(),
+    });
+  }
+  return contributions;
+}
+
 // ── Preference embedding ─────────────────────────────────────────────────────
 //
 // A second, much simpler "who does this user like" signal, deliberately

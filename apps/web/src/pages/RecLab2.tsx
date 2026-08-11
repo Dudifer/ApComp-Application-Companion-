@@ -23,12 +23,26 @@ interface InteractionRecord {
   createdAt: string;
 }
 
+/** Mirrors the API's PropagatedContribution — one neighbor job's interaction spilling a fraction of its score onto this job. */
+interface PropagatedContribution {
+  fromJobId: string;
+  fromJobTitle: string;
+  fromJobCompany?: string;
+  type: string;
+  similarity: number;
+  amount: number;
+  createdAt: string;
+}
+
 /** Mirrors the API's RecLab2JobHistory. */
 interface JobHistory {
   jobId: string;
   jobTitle: string;
   jobCompany?: string;
   score: number;
+  directScore: number;
+  propagatedScore: number;
+  propagatedFrom: PropagatedContribution[];
   interactionCount: number;
   recentInteractions: InteractionRecord[];
 }
@@ -496,6 +510,11 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
                       score: {job.score.toFixed(1)}
                     </span>
                   </div>
+                  {Math.abs(job.propagatedScore) >= 0.01 && (
+                    <div style={{ fontSize: 11, color: 'var(--ink-tertiary)', marginTop: 4 }}>
+                      direct {job.directScore.toFixed(1)} · propagated {job.propagatedScore >= 0 ? '+' : ''}{job.propagatedScore.toFixed(1)}
+                    </div>
+                  )}
                   <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {job.recentInteractions.map(i => (
                       <div key={i.id} style={{ fontSize: 12, color: 'var(--ink-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
@@ -528,6 +547,30 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
                       </div>
                     ))}
                   </div>
+                  {job.propagatedFrom.length > 0 && (
+                    <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px dashed var(--border)' }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-tertiary)', marginBottom: 6 }}>
+                        Propagated from similar jobs
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {job.propagatedFrom
+                          .slice()
+                          .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+                          .map((p, idx) => (
+                            <div
+                              key={`${p.fromJobId}-${idx}`}
+                              style={{ fontSize: 11, color: 'var(--ink-tertiary)', display: 'flex', justifyContent: 'space-between', gap: 8 }}
+                            >
+                              <span>
+                                {p.amount >= 0 ? '+' : ''}{p.amount.toFixed(2)} — {INTERACTION_LABELS[p.type] ?? p.type} on "{p.fromJobTitle}"
+                                {p.fromJobCompany ? ` (${p.fromJobCompany})` : ''}
+                              </span>
+                              <span style={{ whiteSpace: 'nowrap' }}>{p.similarity}% similar</span>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

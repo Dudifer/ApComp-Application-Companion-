@@ -70,7 +70,19 @@ const localDirArg   = args.find(a => a.startsWith('--local-dir='))?.split('=').s
 const LOCAL_DIR     = localDirArg ? path.resolve(localDirArg) : null;
 const companiesArg  = args.find(a => a.startsWith('--companies='))?.split('=').slice(1).join('=');
 const COMPANIES_ARG = companiesArg ? path.resolve(companiesArg) : null;
+// Restricts a --local-dir run to a single file in that folder — used by
+// import-jobs-loop.ts to process one file per fresh process, so DuckDB's
+// memory doesn't accumulate across a whole month of ~300MB files in one run.
+const fileArg       = args.find(a => a.startsWith('--file='))?.split('=').slice(1).join('=');
+const SINGLE_FILE   = fileArg ?? null;
 const FULL_MODE    = args.includes('--all') || LOCAL_DIR !== null;
+// DuckDB's default :memory: mode has no ceiling and no fallback — a single
+// ~300MB+ parquet file (scanned + joined against companies.parquet) can
+// exhaust system RAM and crash with "Out of Memory Error: Allocation
+// failure" rather than slowing down. Capping memory_limit and giving it a
+// temp_directory lets it spill large intermediate results to disk instead.
+const memoryLimitArg = args.find(a => a.startsWith('--memory-limit='))?.split('=')[1];
+const MEMORY_LIMIT   = memoryLimitArg ?? '2GB';
 const daysArg      = args.find(a => a.startsWith('--days='))?.split('=')[1];
 const DAYS_BACK    = Number(daysArg ?? 7);
 
@@ -91,6 +103,15 @@ function dbAll(db: duckdb.Database, sql: string): Promise<any[]> {
   return new Promise((resolve, reject) =>
     db.all(sql, (err, rows) => (err ? reject(err) : resolve(rows ?? []))),
   );
+}
+
+// Caps DuckDB's working memory and gives it somewhere to spill to disk
+// instead of erroring out — see the MEMORY_LIMIT comment above main().
+async function configureDb(db: duckdb.Database): Promise<void> {
+  const spillDir = path.join(os.tmpdir(), 'apcomp-import-spill');
+  fs.mkdirSync(spillDir, { recursive: true });
+  await dbAll(db, `PRAGMA temp_directory='${spillDir.replace(/\\/g, '/')}'`);
+  await dbAll(db, `PRAGMA memory_limit='${MEMORY_LIMIT}'`);
 }
 
 // ── File helpers ───────────────────────────────────────────────────────────
@@ -318,22 +339,30 @@ async function importFromLocalDir(
     console.log('  companies.parquet: updated from local folder\n');
   }
 
-  const files = fs.readdirSync(localDir)
-    .filter(f => f.toLowerCase().endsWith('.parquet') && f.toLowerCase() !== 'companies.parquet')
-    .sort((a, b) => {
-      // Date files (YYYY-MM-DD.parquet) — sort ascending so oldest changes apply first
-      const dateA = a.match(/^(\d{4}-\d{2}-\d{2})\.parquet$/i);
-      const dateB = b.match(/^(\d{4}-\d{2}-\d{2})\.parquet$/i);
-      if (dateA && dateB) return dateA[1].localeCompare(dateB[1]);
-      // Part files — sort numerically
-      const numA = a.match(/part-(\d+)/i);
-      const numB = b.match(/part-(\d+)/i);
-      if (numA && numB) return parseInt(numA[1]) - parseInt(numB[1]);
-      return a.localeCompare(b);
-    });
+  let files: string[];
+  if (SINGLE_FILE) {
+    if (!fs.existsSync(path.join(localDir, SINGLE_FILE))) {
+      throw new Error(`--file="${SINGLE_FILE}" not found in ${localDir}`);
+    }
+    files = [SINGLE_FILE];
+  } else {
+    files = fs.readdirSync(localDir)
+      .filter(f => f.toLowerCase().endsWith('.parquet') && f.toLowerCase() !== 'companies.parquet')
+      .sort((a, b) => {
+        // Date files (YYYY-MM-DD.parquet) — sort ascending so oldest changes apply first
+        const dateA = a.match(/^(\d{4}-\d{2}-\d{2})\.parquet$/i);
+        const dateB = b.match(/^(\d{4}-\d{2}-\d{2})\.parquet$/i);
+        if (dateA && dateB) return dateA[1].localeCompare(dateB[1]);
+        // Part files — sort numerically
+        const numA = a.match(/part-(\d+)/i);
+        const numB = b.match(/part-(\d+)/i);
+        if (numA && numB) return parseInt(numA[1]) - parseInt(numB[1]);
+        return a.localeCompare(b);
+      });
 
-  if (!files.length) {
-    throw new Error(`No .parquet files found in ${localDir} (excluding companies.parquet)`);
+    if (!files.length) {
+      throw new Error(`No .parquet files found in ${localDir} (excluding companies.parquet)`);
+    }
   }
 
   console.log(`Found ${files.length} file(s) in ${localDir}\n`);
@@ -449,6 +478,8 @@ async function main() {
   await prisma.$connect();
   const companiesPath = await ensureCompanies(LOCAL_DIR);
   const db = new duckdb.Database(':memory:');
+  await configureDb(db);
+  console.log(`DuckDB memory_limit=${MEMORY_LIMIT} (spills to disk beyond that — pass --memory-limit=1GB to lower it if this still OOMs)\n`);
 
   if (SHOULD_EMBED) {
     process.stdout.write('Loading embedding model (first run downloads ~90MB, cached after)... ');
