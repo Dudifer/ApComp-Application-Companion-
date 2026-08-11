@@ -6,7 +6,10 @@ import { EmbeddingService } from './embedding.service';
 import { TEST_DATASET } from './test-dataset';
 import { catalogRowToJob } from './catalog-embedding';
 import { cvProfileToTexts, hashFieldTexts } from './text';
-import { compositeEmbedding, cosineSimilarity, toPercent, weightFor, aggregateInteractionScore, FieldEmbeddings } from './scoring';
+import {
+  compositeEmbedding, cosineSimilarity, toPercent, weightFor, aggregateInteractionScore, FieldEmbeddings,
+  computePropagatedContributions, PropagationSourceEvent, PropagatedContribution,
+} from './scoring';
 import { reduceAll } from './embedding-reduction';
 
 // Embeddings plot only shows jobs the user has a strong signal on either
@@ -31,12 +34,19 @@ export interface RecLab2InteractionRecord {
   createdAt: string;
 }
 
-/** One job's interaction history for the "View interaction history" screen — its most recent interactions plus a total score computed the same way (weightFor + aggregateInteractionScore) as the original Rec Lab, just not (yet) fed into any ranking. */
+/** One job's interaction history for the "View interaction history" screen — its most recent interactions plus a total score (direct + propagated) computed the same way (weightFor + aggregateInteractionScore) as the original Rec Lab, now also feeding into ranking (see RecLab2Service.computeAllJobScores). */
 export interface RecLab2JobHistory {
   jobId: string;
   jobTitle: string;
   jobCompany?: string;
+  /** direct + propagated — what everything else (sorting, embeddings-plot buckets) actually uses. */
   score: number;
+  /** This job's own logged interactions only — weightFor + aggregateInteractionScore, no propagation. */
+  directScore: number;
+  /** Sum of propagatedFrom's amounts — how much of `score` came from similar jobs' interactions rather than this job's own. */
+  propagatedScore: number;
+  /** Individual neighbor contributions making up propagatedScore, each referencing the job/interaction it came from. */
+  propagatedFrom: PropagatedContribution[];
   interactionCount: number;
   recentInteractions: RecLab2InteractionRecord[];
 }
@@ -139,25 +149,39 @@ export class RecLab2Service {
     const storedOrder = Array.isArray(cvRow.recLab2JobOrder) ? (cvRow.recLab2JobOrder as string[]) : [];
     const hasStoredOrder = cvRow.recLab2SortHash === currentHash && storedOrder.length > 0;
 
+    let similarityOrdered: RecLab2RankedJob[];
     if (hasStoredOrder) {
       // Already sorted for this exact CV embedding — replay the persisted
       // order instead of recomputing. (Similarity scores above are always
       // recomputed fresh regardless, so display stays accurate even for
       // jobs embedded after the last sort.)
-      return reorderByStoredIds(scored, storedOrder);
+      similarityOrdered = reorderByStoredIds(scored, storedOrder);
+    } else {
+      scored.sort((a, b) => (b.similarity ?? -1) - (a.similarity ?? -1));
+      await this.prisma.cvProfile.update({
+        where: { userId },
+        data: {
+          recLab2SortHash: currentHash,
+          recLab2JobOrder: scored.map(s => s.job.id),
+        },
+      });
+      this.logger.log(`Sorted Rec Lab 2 recommended jobs by CV similarity for user ${userId} (new/changed CV embedding).`);
+      similarityOrdered = scored;
     }
 
-    scored.sort((a, b) => (b.similarity ?? -1) - (a.similarity ?? -1));
-    await this.prisma.cvProfile.update({
-      where: { userId },
-      data: {
-        recLab2SortHash: currentHash,
-        recLab2JobOrder: scored.map(s => s.job.id),
-      },
-    });
-    this.logger.log(`Sorted Rec Lab 2 recommended jobs by CV similarity for user ${userId} (new/changed CV embedding).`);
-
-    return scored;
+    // Primary sort key is the live interaction score (MORE_LIKE_THIS/SAVED
+    // push a job up, LESS_LIKE_THIS/DISMISSED push it down) — recomputed on
+    // every load since interactions change far more often than the CV does,
+    // unlike the similarity order above which is deliberately cached.
+    // Array.prototype.sort is stable in Node, so sorting the
+    // already-similarity-ordered list by score and nothing else naturally
+    // leaves equal-score jobs (most commonly the many with zero interactions
+    // yet) in their existing CV-similarity order — exactly "score first, CV
+    // similarity as tiebreak" without a manual secondary comparator.
+    const scoreByJobId = await this.getJobScores(userId);
+    return [...similarityOrdered].sort(
+      (a, b) => (scoreByJobId.get(b.job.id) ?? 0) - (scoreByJobId.get(a.job.id) ?? 0),
+    );
   }
 
   /**
@@ -324,29 +348,98 @@ export class RecLab2Service {
     }));
   }
 
-  /** Every job's interaction score (weightFor/aggregateInteractionScore, same math as getInteractionHistory), keyed by job id — used to sort jobs into the embeddings plot's high/low score buckets. */
+  /**
+   * Every TEST_DATASET job's score, direct + propagated, keyed by job id.
+   * Thin wrapper over computeAllJobScores() for callers (sort order,
+   * embeddings-plot buckets) that only need the final number, not the
+   * breakdown/attribution getInteractionHistory shows.
+   */
   private async getJobScores(userId: string): Promise<Map<string, number>> {
-    const rows = await this.prisma.recLab2Interaction.findMany({ where: { userId } });
-    const byJob = new Map<string, typeof rows>();
-    for (const row of rows) {
+    const breakdown = await this.computeAllJobScores(userId);
+    const scores = new Map<string, number>();
+    for (const [jobId, b] of breakdown) scores.set(jobId, b.total);
+    return scores;
+  }
+
+  /**
+   * Every TEST_DATASET job's score, split into direct (its own logged
+   * interactions) and propagated (a fraction of *other* jobs' interactions,
+   * scaled by how similar those jobs are — see scoring.ts's
+   * computePropagatedContributions). Computed live on every call rather than
+   * cached, same principle as aggregateInteractionScore itself: editing or
+   * deleting a past interaction should immediately change every score it
+   * touches, direct or propagated, with nothing stale left to invalidate.
+   *
+   * Returns an empty map (not one entry per job at 0) when the user has no
+   * interactions at all yet — callers already treat a missing key as score 0,
+   * and skipping the embedding fetch entirely keeps the common "hasn't
+   * interacted with anything yet" case cheap.
+   */
+  private async computeAllJobScores(userId: string): Promise<Map<string, {
+    direct: number; propagated: number; total: number; propagatedContributions: PropagatedContribution[];
+  }>> {
+    const interactions = await this.prisma.recLab2Interaction.findMany({ where: { userId } });
+    if (!interactions.length) return new Map();
+
+    const byJob = new Map<string, typeof interactions>();
+    for (const row of interactions) {
       const list = byJob.get(row.jobId) ?? [];
       list.push(row);
       byJob.set(row.jobId, list);
     }
-    const scores = new Map<string, number>();
+    const directScores = new Map<string, number>();
     for (const [jobId, jobRows] of byJob) {
-      scores.set(jobId, aggregateInteractionScore(jobRows.map(r => ({ weight: r.weight, createdAt: r.createdAt })), { decay: true }));
+      directScores.set(jobId, aggregateInteractionScore(jobRows.map(r => ({ weight: r.weight, createdAt: r.createdAt })), { decay: true }));
     }
-    return scores;
+
+    // Composite embeddings for every TEST_DATASET job — needed both as
+    // propagation targets (any job could be similar enough to an interacted
+    // one to pick up some score) and as propagation sources (every
+    // interaction's own job needs its composite to measure similarity from).
+    const allTestJobs = TEST_DATASET.map(row => catalogRowToJob(row));
+    const embeddingRows = await this.prisma.jobEmbedding.findMany({
+      where: { jobId: { in: allTestJobs.map(j => j.id) } },
+    });
+    const compositeByJobId = new Map(
+      embeddingRows.map(row => [row.jobId, compositeEmbedding({ title: row.titleEmbedding, description: row.descriptionEmbedding })]),
+    );
+
+    const sourceEvents: PropagationSourceEvent[] = interactions
+      .map(row => ({
+        jobId: row.jobId,
+        jobTitle: row.jobTitle,
+        jobCompany: row.jobCompany ?? undefined,
+        type: row.type as InteractionType,
+        weight: row.weight,
+        createdAt: row.createdAt,
+        composite: compositeByJobId.get(row.jobId) ?? [],
+      }))
+      .filter(e => e.composite.length > 0);
+
+    const result = new Map<string, { direct: number; propagated: number; total: number; propagatedContributions: PropagatedContribution[] }>();
+    for (const job of allTestJobs) {
+      const targetComposite = compositeByJobId.get(job.id) ?? [];
+      const direct = directScores.get(job.id) ?? 0;
+      // Excludes this job's own interactions — those are direct score, not
+      // "propagated from a neighbor" (a job is never its own neighbor here).
+      const otherEvents = sourceEvents.filter(e => e.jobId !== job.id);
+      const propagatedContributions = targetComposite.length
+        ? computePropagatedContributions(targetComposite, otherEvents, { decay: true })
+        : [];
+      const propagated = propagatedContributions.reduce((sum, c) => sum + c.amount, 0);
+      result.set(job.id, { direct, propagated, total: direct + propagated, propagatedContributions });
+    }
+    return result;
   }
 
-  // ── Interactions (tracked, not yet wired into ranking) ──────────────────
+  // ── Interactions (wired into ranking — see computeAllJobScores) ─────────
   //
   // Deliberately its own table (RecLab2Interaction, not JobInteraction) —
   // see the schema.prisma comment on that model for why sharing the
   // original table would leak into the live app's dismissed-jobs list and
-  // the original Rec Lab's scoring. Nothing here reads these rows for
-  // ranking; getRecommendedJobs() above is untouched by any of this.
+  // the original Rec Lab's scoring. getRecommendedJobs() sorts by the score
+  // computed from these rows (direct + propagated), and getInteractionHistory
+  // reports that same score's full breakdown.
 
   async logInteraction(
     clerkId: string,
@@ -476,7 +569,7 @@ export class RecLab2Service {
     return this.toInteractionRecord(row);
   }
 
-  /** Grouped by job: each job's most recent `perJobLimit` interactions plus its total score (same weightFor/aggregateInteractionScore math as the original Rec Lab). Jobs with more interactions, then higher score, sort first. */
+  /** Grouped by job: each job's most recent `perJobLimit` interactions plus its total score — direct (this job's own interactions) + propagated (a fraction from similar jobs' interactions, individually attributed via propagatedFrom). Jobs with more interactions, then higher score, sort first. */
   async getInteractionHistory(clerkId: string, perJobLimit = 10): Promise<RecLab2JobHistory[]> {
     const userId = await this.userService.ensureUser(clerkId);
     const rows = await this.prisma.recLab2Interaction.findMany({
@@ -491,17 +584,31 @@ export class RecLab2Service {
       byJob.set(row.jobId, list);
     }
 
-    const history: RecLab2JobHistory[] = [...byJob.entries()].map(([jobId, jobRows]) => ({
-      jobId,
-      jobTitle: jobRows[0].jobTitle,
-      jobCompany: jobRows[0].jobCompany ?? undefined,
-      score: aggregateInteractionScore(
+    const scoreBreakdown = await this.computeAllJobScores(userId);
+
+    const history: RecLab2JobHistory[] = [...byJob.entries()].map(([jobId, jobRows]) => {
+      // Falls back to a plain direct-only recompute if this job somehow
+      // isn't in the breakdown (e.g. TEST_DATASET no longer includes an id
+      // that still has old interaction rows) — defensive, shouldn't happen
+      // in practice since every interaction is logged against a current
+      // TEST_DATASET job.
+      const fallbackDirect = () => aggregateInteractionScore(
         jobRows.map(r => ({ weight: r.weight, createdAt: r.createdAt })),
         { decay: true },
-      ),
-      interactionCount: jobRows.length,
-      recentInteractions: jobRows.slice(0, perJobLimit).map(r => this.toInteractionRecord(r)),
-    }));
+      );
+      const breakdown = scoreBreakdown.get(jobId);
+      return {
+        jobId,
+        jobTitle: jobRows[0].jobTitle,
+        jobCompany: jobRows[0].jobCompany ?? undefined,
+        score: breakdown?.total ?? fallbackDirect(),
+        directScore: breakdown?.direct ?? fallbackDirect(),
+        propagatedScore: breakdown?.propagated ?? 0,
+        propagatedFrom: breakdown?.propagatedContributions ?? [],
+        interactionCount: jobRows.length,
+        recentInteractions: jobRows.slice(0, perJobLimit).map(r => this.toInteractionRecord(r)),
+      };
+    });
 
     history.sort((a, b) => b.interactionCount - a.interactionCount || b.score - a.score);
     return history;
