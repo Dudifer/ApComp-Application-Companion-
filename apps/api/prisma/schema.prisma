@@ -27,6 +27,7 @@ model User {
   gmailToken     GmailToken?
   jobInteractions JobInteraction[]
   recLab2Interactions RecLab2Interaction[]
+  recLab2Sessions RecLab2Session[]
 
   @@map("users")
 }
@@ -285,11 +286,65 @@ model RecLab2Interaction {
   type   InteractionType // same enum/weights as the original Rec Lab
   weight Float
 
+  // Loose string tag, not a relation — which "interaction session" (see
+  // RecLab2Session) this interaction happened during, so session-end metrics
+  // (first positively-interacted position, most-interacted-job position) can
+  // be computed from exactly the rows logged in that span. Nullable: rows
+  // logged before this feature existed, or outside any tracked session,
+  // simply have no session to attribute to.
+  sessionId String?
+
   createdAt DateTime @default(now())
 
   @@index([userId, jobId])
   @@index([userId, createdAt])
+  @@index([sessionId])
   @@map("rec_lab2_interactions")
+}
+
+// One Rec Lab 2 "interaction session" — the span between a visitor's focus
+// entering the Recommended Jobs box (first click or scroll in it) and them
+// leaving (navigating away, refreshing/closing the tab, or hitting "Refresh
+// box"). Exists to answer "is the ranking actually getting better over
+// time?" — see RecLab2Service.endSession for how the three metrics below are
+// computed, and the "Metrics" screen in RecLab2.tsx for how they're graphed
+// session-over-session.
+model RecLab2Session {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 1-based, sequential per user — the x-axis on the metrics graphs. Simpler
+  // and more stable to graph against than startedAt timestamps, which would
+  // bunch sessions unevenly depending on how often the user actually visits.
+  sessionNumber Int
+
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  // Frozen snapshot of every TEST_DATASET job's position (0-based, current
+  // recommended-list order) and score at the moment the session started —
+  // [{ jobId, position, score }, ...]. Scores keep changing live as
+  // interactions come in (direct + propagated, see computeAllJobScores), so
+  // this is the fixed baseline endSession() diffs against; positions also
+  // stay fixed for the session's duration since re-sorting only happens via
+  // "Refresh box", which itself ends the session.
+  startSnapshot Json @default("[]")
+
+  // Computed once by endSession() — null while the session is still open.
+  // Average, across the 5 jobs at startSnapshot positions 0-4, of
+  // (that job's score at session end - its score at session start).
+  avgTopFiveScoreChange Float?
+  // startSnapshot position of the job in the session's earliest
+  // positive-weight interaction (recLab2WeightFor(type) > 0) — null if the
+  // session had no positive interactions.
+  firstPositivePosition Int?
+  // startSnapshot position of the job with the most interactions (by count)
+  // logged during the session — null if the session had no interactions.
+  mostInteractedPosition Int?
+
+  @@index([userId, sessionNumber])
+  @@map("rec_lab2_sessions")
 }
 
 enum ApplicationStatus {

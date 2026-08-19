@@ -35,11 +35,11 @@ export class RecLab2Controller extends AuthenticatedController {
     return this.recLab2.getEmbeddingsPlot(req.userId);
   }
 
-  /** Logs a Rec Lab 2-only interaction — tracked and scored, but not (yet) read by getRecommended's ranking. */
+  /** Logs a Rec Lab 2-only interaction — tracked and scored (direct + propagated), and read by getRecommended's ranking. `sessionId`, if provided, attributes it to an in-progress interaction session (see sessions/start below). */
   @Post('interactions')
   logInteraction(
     @Req() req: any,
-    @Body() body: { jobId: string; jobTitle: string; jobCompany?: string; type: InteractionType },
+    @Body() body: { jobId: string; jobTitle: string; jobCompany?: string; type: InteractionType; sessionId?: string },
   ) {
     return this.recLab2.logInteraction(req.userId, body);
   }
@@ -72,5 +72,23 @@ export class RecLab2Controller extends AuthenticatedController {
   @Post('interactions/reset')
   resetInteractions(@Req() req: any) {
     return this.recLab2.resetInteractions(req.userId);
+  }
+
+  /** Starts a new interaction session — snapshots current job order + scores as the baseline for endSession's metrics. Called when the frontend detects focus entering the Recommended Jobs box. */
+  @Post('sessions/start')
+  startSession(@Req() req: any) {
+    return this.recLab2.startSession(req.userId);
+  }
+
+  /** Ends a session and computes its metrics (avg top-5 score change, first-positive-interaction position, most-interacted-job position). Idempotent — safe to call more than once for the same session. */
+  @Post('sessions/:id/end')
+  endSession(@Req() req: any, @Param('id') id: string) {
+    return this.recLab2.endSession(req.userId, id);
+  }
+
+  /** Every ended session's metrics, oldest first — feeds the "Metrics" screen's session-over-session graphs. */
+  @Get('sessions')
+  listSessions(@Req() req: any) {
+    return this.recLab2.listSessions(req.userId);
   }
 }
