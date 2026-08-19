@@ -1,8 +1,24 @@
 import { useAuth } from '@clerk/clerk-react';
 import { useCallback } from 'react';
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
+export const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const DEMO_TOKEN = import.meta.env.VITE_DEMO_ACCESS_TOKEN as string | undefined;
+
+// The most recently resolved auth token, cached module-wide. Clerk's
+// getToken() is async (it may need a network round-trip to refresh), but a
+// page-unload handler (beforeunload/pagehide — see RecLab2.tsx's session-end
+// tracking) can't reliably wait on an async call before the page actually
+// unloads. Since normal API calls throughout the session keep this fresh,
+// reusing the last-known-good token there is a reasonable trade: worst case
+// it's slightly stale and the one final request fails, which is fine for a
+// best-effort analytics ping.
+let lastToken: string | null = null;
+
+/** Synchronous best-effort token for contexts that can't await resolveToken() — see the comment above. */
+export function getCachedToken(): string | null {
+  if (isDemoMode() && DEMO_TOKEN) return DEMO_TOKEN;
+  return lastToken;
+}
 
 // Set by the "Demo" button on the landing page (see LandingPage.tsx) and
 // read here + by AuthWrapper/App.tsx. A plain localStorage flag rather than
@@ -23,7 +39,9 @@ export function useApi() {
 
   const resolveToken = useCallback(async () => {
     if (isDemoMode() && DEMO_TOKEN) return DEMO_TOKEN;
-    return getToken();
+    const token = await getToken();
+    if (token) lastToken = token;
+    return token;
   }, [getToken]);
 
   const request = useCallback(async (

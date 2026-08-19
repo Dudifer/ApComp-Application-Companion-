@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ReactNode, MouseEvent } from 'react';
 import type { Job } from '@apcomp/types';
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  LineChart, Line,
 } from 'recharts';
-import { useApi } from '../lib/api';
+import { useApi, getCachedToken, BASE_URL } from '../lib/api';
 
 /** Mirrors the API's RecLab2RankedJob — a job plus its cosine-similarity match to the CV, 0-100 (or null with no CV / no job embedding yet). */
 interface RankedJob {
@@ -56,6 +57,17 @@ interface EmbeddingPoint {
   pca: [number, number];
   umap: [number, number];
   tsne: [number, number];
+}
+
+/** Mirrors the API's RecLab2SessionSummary — one ended interaction session's headline metrics, for the Metrics screen's graphs. */
+interface SessionSummary {
+  id: string;
+  sessionNumber: number;
+  startedAt: string;
+  endedAt: string;
+  avgTopFiveScoreChange: number | null;
+  firstPositivePosition: number | null;
+  mostInteractedPosition: number | null;
 }
 
 const REDUCTION_METHODS = [
@@ -124,6 +136,63 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   const [recommended, setRecommended] = useState<RankedJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Interaction sessions ─────────────────────────────────────────────────
+  // A session spans from the first click/scroll in the Recommended Jobs box
+  // until the user navigates away, refreshes/closes the tab, or hits
+  // "Refresh box". sessionIdRef mirrors sessionId state so unload/unmount
+  // handlers (which can't rely on a fresh render) always see the current id.
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const setSession = (id: string | null) => { sessionIdRef.current = id; setSessionId(id); };
+
+  // Starts a session on first focus into the Recommended box (click or
+  // scroll) — a no-op if one's already running. Best-effort: if it hasn't
+  // resolved yet, the interaction that triggered it just goes unattributed
+  // to a session rather than blocking the click.
+  const ensureSession = useCallback(() => {
+    if (sessionIdRef.current) return;
+    api.post('/rec-lab2/sessions/start')
+      .then(r => { if (!r.ok) throw new Error(`Failed to start session (${r.status})`); return r.json(); })
+      .then(data => setSession(data.id))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Ends the in-progress session, if any. `keepalive` is used from unload/
+  // unmount paths, where the normal fetch (via useApi's async getToken)
+  // can't be trusted to finish before the page actually goes away — see
+  // getCachedToken's comment in lib/api.ts.
+  const endSession = useCallback((keepalive = false) => {
+    const id = sessionIdRef.current;
+    if (!id) return;
+    setSession(null);
+    if (keepalive) {
+      const token = getCachedToken();
+      fetch(`${BASE_URL}/rec-lab2/sessions/${id}/end`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        keepalive: true,
+      }).catch(() => {});
+    } else {
+      api.post(`/rec-lab2/sessions/${id}/end`).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Cover both a hard page unload/refresh (beforeunload/pagehide) and a
+  // plain SPA navigation away from this page (the cleanup function below).
+  useEffect(() => {
+    const handleUnload = () => endSession(true);
+    window.addEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handleUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener('pagehide', handleUnload);
+      endSession(true);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const fetchRecommended = useCallback(() => {
     setLoading(true);
@@ -235,6 +304,7 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   };
 
   const toggleInteraction = useCallback((job: Job, type: string) => {
+    ensureSession();
     const key = `${job.id}:${type}`;
     const existingId = activeInteractions[key];
     if (existingId) {
@@ -247,7 +317,10 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
         .catch(() => {});
       return;
     }
-    api.post('/rec-lab2/interactions', { jobId: job.id, jobTitle: job.title, jobCompany: job.company, type })
+    api.post('/rec-lab2/interactions', {
+      jobId: job.id, jobTitle: job.title, jobCompany: job.company, type,
+      sessionId: sessionIdRef.current ?? undefined,
+    })
       .then(r => r.json())
       .then(record => setActiveToggle(job.id, type, record.id))
       .catch(() => {});
@@ -258,11 +331,13 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   const logViewed = useCallback((job: Job) => {
     api.post('/rec-lab2/interactions', {
       jobId: job.id, jobTitle: job.title, jobCompany: job.company, type: 'VIEWED',
+      sessionId: sessionIdRef.current ?? undefined,
     }).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleRowClick = (job: Job) => {
+    ensureSession();
     if (compareMode) { toggleSelected(job.id); return; }
     logViewed(job);
     onJobSelect?.(job);
@@ -291,7 +366,7 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   const toggleHistory = () => {
     setShowHistory(prev => {
       const next = !prev;
-      if (next) { setShowEmbeddingsPlot(false); fetchHistory(); } // sub-pages are mutually exclusive
+      if (next) { setShowEmbeddingsPlot(false); setShowMetrics(false); fetchHistory(); } // sub-pages are mutually exclusive
       return next;
     });
   };
@@ -329,7 +404,7 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   const toggleEmbeddingsPlot = () => {
     setShowEmbeddingsPlot(prev => {
       const next = !prev;
-      if (next) { setShowHistory(false); fetchEmbeddingsPlot(); } // sub-pages are mutually exclusive
+      if (next) { setShowHistory(false); setShowMetrics(false); fetchEmbeddingsPlot(); } // sub-pages are mutually exclusive
       return next;
     });
   };
@@ -383,6 +458,43 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
       .catch(err => alert(err.message ?? 'Failed to reset interaction history'));
   };
 
+  // ── Metrics screen — session-over-session graphs ─────────────────────────
+  const [showMetrics, setShowMetrics] = useState(false);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+
+  const fetchSessions = useCallback(() => {
+    setSessionsLoading(true);
+    setSessionsError(null);
+    api.get('/rec-lab2/sessions')
+      .then(r => {
+        if (!r.ok) throw new Error(`Failed to load session metrics (${r.status})`);
+        return r.json();
+      })
+      .then(data => setSessions(Array.isArray(data) ? data : []))
+      .catch(err => setSessionsError(err.message ?? 'Failed to load session metrics'))
+      .finally(() => setSessionsLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleMetrics = () => {
+    setShowMetrics(prev => {
+      const next = !prev;
+      if (next) { setShowHistory(false); setShowEmbeddingsPlot(false); fetchSessions(); } // sub-pages are mutually exclusive
+      return next;
+    });
+  };
+
+  // "Refresh box" — ends the in-progress session (so it gets scored and
+  // shows up on the Metrics screen), re-fetches the ranking (picking up any
+  // score changes from this session's interactions), and clears sessionId so
+  // the next click/scroll starts a fresh session.
+  const handleRefreshBox = () => {
+    endSession(false);
+    fetchRecommended();
+  };
+
   const activeEmbeddingPoints = embeddingBuckets[scoreBucket];
 
   // Which box a job belongs in is derived straight from its SAVED/DISMISSED
@@ -433,6 +545,18 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
             {showHistory ? '✕ Close history' : 'View interaction history'}
           </button>
           <button
+            onClick={toggleMetrics}
+            style={{
+              fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 999,
+              border: `1px solid ${showMetrics ? 'var(--blue)' : 'var(--border)'}`,
+              background: showMetrics ? 'var(--blue-light)' : 'white',
+              color: showMetrics ? 'var(--blue)' : 'var(--ink-secondary)',
+              cursor: 'pointer', fontFamily: 'var(--font-body)',
+            }}
+          >
+            {showMetrics ? '✕ Close metrics' : 'Metrics'}
+          </button>
+          <button
             onClick={handleResetScores}
             style={{
               fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 999,
@@ -444,8 +568,19 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
           </button>
         </div>
 
-        {!showHistory && (
+        {!showHistory && !showMetrics && (
           <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={handleRefreshBox}
+              title="Ends the current interaction session (scoring it for the Metrics screen) and re-checks rankings"
+              style={{
+                fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 999,
+                border: '1px solid var(--border)', background: 'white',
+                color: 'var(--ink-secondary)', cursor: 'pointer', fontFamily: 'var(--font-body)',
+              }}
+            >
+              ↻ Refresh box
+            </button>
             <button
               onClick={toggleEmbeddingsPlot}
               style={{
@@ -652,6 +787,39 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
             </>
           )}
         </Box>
+      ) : showMetrics ? (
+        <Box title="Session Metrics" count={sessions.length}>
+          {sessionsLoading ? (
+            <Empty>Loading…</Empty>
+          ) : sessionsError ? (
+            <Empty tone="error">{sessionsError}</Empty>
+          ) : sessions.length === 0 ? (
+            <Empty>No completed sessions yet — click or scroll in Recommended Jobs, then hit "Refresh box" (or navigate away) to close out a session.</Empty>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              <MetricChart
+                title="Top-5 Recommendation Score Lift"
+                subtitle="Avg. score change across the first 5 recommended jobs, start to end of session"
+                data={sessions.map(s => ({ sessionNumber: s.sessionNumber, value: s.avgTopFiveScoreChange }))}
+                color="var(--blue)"
+              />
+              <MetricChart
+                title="First Positive-Signal Position"
+                subtitle="Rank of the earliest job in the session with a positive interaction"
+                data={sessions.map(s => ({ sessionNumber: s.sessionNumber, value: s.firstPositivePosition }))}
+                color="var(--green)"
+                reversed
+              />
+              <MetricChart
+                title="Most-Engaged Job Position"
+                subtitle="Rank of the job with the most interactions during the session"
+                data={sessions.map(s => ({ sessionNumber: s.sessionNumber, value: s.mostInteractedPosition }))}
+                color="var(--accent)"
+                reversed
+              />
+            </div>
+          )}
+        </Box>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Box title="Recommended Jobs" count={recommendedList.length}>
@@ -699,7 +867,10 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
             ) : recommendedList.length === 0 ? (
               <Empty>No jobs yet.</Empty>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 480, overflowY: 'auto' }}>
+              <div
+                onScroll={ensureSession}
+                style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 480, overflowY: 'auto' }}
+              >
                 {recommendedList.map(renderJobRow)}
               </div>
             )}
@@ -893,6 +1064,61 @@ function EmbeddingTooltip({ active, payload }: any) {
     >
       <div style={{ fontWeight: 600, color: 'var(--ink)' }}>{point.title}</div>
       {point.company && <div style={{ color: 'var(--ink-tertiary)', marginTop: 2 }}>{point.company}</div>}
+    </div>
+  );
+}
+
+/**
+ * One session-over-session line chart on the Metrics screen. `reversed`
+ * flips the y-axis for the two position-based metrics, where a *lower*
+ * rank (closer to the top of Recommended Jobs) is the improvement, so the
+ * line trending upward on the chart always reads as "getting better."
+ * `value: null` sessions (e.g. no positive interaction that session) leave
+ * a gap rather than plotting as 0, which would misleadingly read as "top
+ * position."
+ */
+function MetricChart({
+  title, subtitle, data, color, reversed,
+}: {
+  title: string;
+  subtitle: string;
+  data: { sessionNumber: number; value: number | null }[];
+  color: string;
+  reversed?: boolean;
+}) {
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{title}</div>
+      <div style={{ fontSize: 11, color: 'var(--ink-tertiary)', marginBottom: 8 }}>{subtitle}</div>
+      <div style={{ width: '100%', height: 200 }}>
+        <ResponsiveContainer>
+          <LineChart data={data} margin={{ top: 6, right: 20, bottom: 6, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+            <XAxis
+              dataKey="sessionNumber"
+              type="number"
+              domain={['dataMin', 'dataMax']}
+              allowDecimals={false}
+              tick={{ fontSize: 11 }}
+              stroke="var(--ink-tertiary)"
+              label={{ value: 'Session #', position: 'insideBottom', offset: -4, fontSize: 11, fill: 'var(--ink-tertiary)' }}
+            />
+            <YAxis
+              allowDecimals={false}
+              reversed={reversed}
+              tick={{ fontSize: 11 }}
+              stroke="var(--ink-tertiary)"
+              width={36}
+            />
+            <Tooltip
+              formatter={(value: number) => [value, title]}
+              labelFormatter={(label: number) => `Session ${label}`}
+              contentStyle={{ fontSize: 12, borderRadius: 8 }}
+            />
+            <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }

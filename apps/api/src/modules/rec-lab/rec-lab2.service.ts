@@ -69,6 +69,31 @@ export interface RecLab2ActiveToggle {
   type: InteractionType;
 }
 
+/** One entry in a session's startSnapshot — see RecLab2Session in schema.prisma. */
+interface SessionSnapshotEntry {
+  jobId: string;
+  position: number;
+  score: number;
+}
+
+/** Returned by startSession() — just enough for the frontend to tag subsequent interactions and later call endSession(). */
+export interface RecLab2SessionStart {
+  id: string;
+  sessionNumber: number;
+  startedAt: string;
+}
+
+/** One row on the "Metrics" screen — a session's three headline numbers, for graphing against sessionNumber. Only ended sessions are returned (see listSessions); an in-progress session has nothing to plot yet. */
+export interface RecLab2SessionSummary {
+  id: string;
+  sessionNumber: number;
+  startedAt: string;
+  endedAt: string;
+  avgTopFiveScoreChange: number | null;
+  firstPositivePosition: number | null;
+  mostInteractedPosition: number | null;
+}
+
 // The 4 row buttons (👍/👎/♡/✕) are the only interaction types that behave
 // like toggles (logged on first click, deleted on second) — VIEWED/CLICKED/
 // APPLIED/IGNORED are plain one-way logs with nothing to "restore" a UI
@@ -443,7 +468,7 @@ export class RecLab2Service {
 
   async logInteraction(
     clerkId: string,
-    input: { jobId: string; jobTitle: string; jobCompany?: string; type: InteractionType },
+    input: { jobId: string; jobTitle: string; jobCompany?: string; type: InteractionType; sessionId?: string },
   ): Promise<RecLab2InteractionRecord> {
     const userId = await this.userService.ensureUser(clerkId);
     await this.clearOpposingToggle(userId, input.jobId, input.type);
@@ -455,6 +480,7 @@ export class RecLab2Service {
         jobCompany: input.jobCompany,
         type: input.type as any,
         weight: recLab2WeightFor(input.type),
+        sessionId: input.sessionId,
       },
     });
     return this.toInteractionRecord(row);
@@ -618,6 +644,142 @@ export class RecLab2Service {
     const userId = await this.userService.ensureUser(clerkId);
     await this.prisma.recLab2Interaction.deleteMany({ where: { userId } });
     return { success: true };
+  }
+
+  // ── Interaction sessions (see RecLab2Session in schema.prisma) ──────────
+
+  /**
+   * Starts a new session: snapshots every TEST_DATASET job's current
+   * position (from getRecommendedJobs' order) and score (direct +
+   * propagated, from getJobScores) as the fixed baseline endSession() will
+   * later diff against. Called the moment the frontend detects the user's
+   * focus entering the Recommended Jobs box (first click or scroll) — see
+   * RecLab2.tsx's ensureSession().
+   */
+  async startSession(clerkId: string): Promise<RecLab2SessionStart> {
+    const userId = await this.userService.ensureUser(clerkId);
+
+    const [ordered, scoreByJobId, sessionCount] = await Promise.all([
+      this.getRecommendedJobs(clerkId),
+      this.getJobScores(userId),
+      this.prisma.recLab2Session.count({ where: { userId } }),
+    ]);
+
+    const startSnapshot: SessionSnapshotEntry[] = ordered.map((r, position) => ({
+      jobId: r.job.id,
+      position,
+      score: scoreByJobId.get(r.job.id) ?? 0,
+    }));
+
+    const row = await this.prisma.recLab2Session.create({
+      data: {
+        userId,
+        sessionNumber: sessionCount + 1,
+        startSnapshot: startSnapshot as any,
+      },
+    });
+
+    return {
+      id: row.id,
+      sessionNumber: row.sessionNumber,
+      startedAt: row.startedAt.toISOString(),
+    };
+  }
+
+  /**
+   * Ends a session and computes its three headline metrics against the
+   * interactions logged during it (RecLab2Interaction rows tagged with this
+   * sessionId — see logInteraction). Idempotent: calling this again on an
+   * already-ended session just returns what was already computed, rather
+   * than recomputing (a page-unload beacon and a component-unmount handler
+   * can both legitimately fire for the same session — see RecLab2.tsx).
+   */
+  async endSession(clerkId: string, sessionId: string): Promise<RecLab2SessionSummary> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const session = await this.prisma.recLab2Session.findUnique({ where: { id: sessionId } });
+    if (!session) throw new NotFoundException('Session not found');
+    if (session.userId !== userId) throw new ForbiddenException();
+
+    if (session.endedAt) {
+      return this.toSessionSummary(session);
+    }
+
+    const snapshot = Array.isArray(session.startSnapshot) ? (session.startSnapshot as unknown as SessionSnapshotEntry[]) : [];
+    const snapshotByJobId = new Map(snapshot.map(s => [s.jobId, s]));
+
+    const currentScores = await this.getJobScores(userId);
+
+    const topFive = snapshot.filter(s => s.position < 5);
+    const avgTopFiveScoreChange = topFive.length
+      ? topFive.reduce((sum, s) => sum + ((currentScores.get(s.jobId) ?? 0) - s.score), 0) / topFive.length
+      : null;
+
+    const sessionInteractions = await this.prisma.recLab2Interaction.findMany({
+      where: { userId, sessionId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    let firstPositivePosition: number | null = null;
+    const firstPositive = sessionInteractions.find(i => i.weight > 0);
+    if (firstPositive) {
+      firstPositivePosition = snapshotByJobId.get(firstPositive.jobId)?.position ?? null;
+    }
+
+    let mostInteractedPosition: number | null = null;
+    if (sessionInteractions.length) {
+      const countByJobId = new Map<string, number>();
+      for (const i of sessionInteractions) {
+        countByJobId.set(i.jobId, (countByJobId.get(i.jobId) ?? 0) + 1);
+      }
+      let bestJobId: string | null = null;
+      let bestCount = 0;
+      // sessionInteractions is already createdAt-ascending, so the first
+      // jobId to reach the eventual max count wins ties (earliest engaged).
+      for (const i of sessionInteractions) {
+        const count = countByJobId.get(i.jobId)!;
+        if (count > bestCount) {
+          bestCount = count;
+          bestJobId = i.jobId;
+        }
+      }
+      mostInteractedPosition = bestJobId ? snapshotByJobId.get(bestJobId)?.position ?? null : null;
+    }
+
+    const updated = await this.prisma.recLab2Session.update({
+      where: { id: sessionId },
+      data: {
+        endedAt: new Date(),
+        avgTopFiveScoreChange,
+        firstPositivePosition,
+        mostInteractedPosition,
+      },
+    });
+
+    this.logger.log(`Ended Rec Lab 2 session ${sessionId} for user ${userId}: avgTopFiveScoreChange=${avgTopFiveScoreChange}, firstPositivePosition=${firstPositivePosition}, mostInteractedPosition=${mostInteractedPosition}`);
+
+    return this.toSessionSummary(updated);
+  }
+
+  /** Every ended session, oldest first — the data the "Metrics" screen graphs against sessionNumber. */
+  async listSessions(clerkId: string): Promise<RecLab2SessionSummary[]> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const rows = await this.prisma.recLab2Session.findMany({
+      where: { userId, endedAt: { not: null } },
+      orderBy: { sessionNumber: 'asc' },
+    });
+    return rows.map(r => this.toSessionSummary(r));
+  }
+
+  private toSessionSummary(row: any): RecLab2SessionSummary {
+    return {
+      id: row.id,
+      sessionNumber: row.sessionNumber,
+      startedAt: row.startedAt.toISOString(),
+      endedAt: (row.endedAt ?? row.startedAt).toISOString(),
+      avgTopFiveScoreChange: row.avgTopFiveScoreChange ?? null,
+      firstPositivePosition: row.firstPositivePosition ?? null,
+      mostInteractedPosition: row.mostInteractedPosition ?? null,
+    };
   }
 
   private toInteractionRecord(row: any): RecLab2InteractionRecord {
