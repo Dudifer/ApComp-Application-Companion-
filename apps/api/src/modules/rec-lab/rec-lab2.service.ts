@@ -22,6 +22,8 @@ const LOW_SCORE_THRESHOLD = -10;
 export interface RecLab2RankedJob {
   job: Job;
   similarity: number | null;
+  /** True for the NOVELTY_PICKS wildcard slots pulled from outside the top TOP_PICKS — see applyBatchCap. Omitted (falsy) for everything else. */
+  isNovelty?: boolean;
 }
 
 export interface RecLab2InteractionRecord {
@@ -109,6 +111,14 @@ const OPPOSING_TOGGLE: Partial<Record<InteractionType, InteractionType>> = {
   DISMISSED: 'SAVED',
 };
 
+// The Recommended box shows a fixed-size batch rather than every
+// TEST_DATASET job at once: the TOP_PICKS highest-ranked jobs, plus
+// NOVELTY_PICKS wildcards pulled from further down the ranked list so the
+// box isn't purely an echo chamber of whatever already scores well — see
+// RecLab2Service.applyBatchCap.
+const TOP_PICKS = 16;
+const NOVELTY_PICKS = 4;
+
 /**
  * Rec Lab 2 — clean rebuild, starting from scratch.
  */
@@ -150,7 +160,7 @@ export class RecLab2Service {
     const cvRow = await this.prisma.cvProfile.findUnique({ where: { userId } });
     if (!cvRow) {
       this.logger.log(`No CV profile for user ${userId} — Rec Lab 2 returning unscored, unsorted jobs.`);
-      return jobs.map(job => ({ job, similarity: null }));
+      return this.applyBatchCap(userId, jobs.map(job => ({ job, similarity: null })));
     }
 
     const { composite: cvComposite, hash: currentHash } = await this.ensureCvEmbeddings(userId, cvRow);
@@ -204,9 +214,55 @@ export class RecLab2Service {
     // yet) in their existing CV-similarity order — exactly "score first, CV
     // similarity as tiebreak" without a manual secondary comparator.
     const scoreByJobId = await this.getJobScores(userId);
-    return [...similarityOrdered].sort(
+    const scoreSorted = [...similarityOrdered].sort(
       (a, b) => (scoreByJobId.get(b.job.id) ?? 0) - (scoreByJobId.get(a.job.id) ?? 0),
     );
+    return this.applyBatchCap(userId, scoreSorted);
+  }
+
+  /**
+   * Caps the Recommended box to a fixed-size batch instead of every
+   * TEST_DATASET job at once: the TOP_PICKS highest-ranked jobs, plus
+   * NOVELTY_PICKS wildcards pulled from further down the list so the box
+   * isn't purely an echo chamber of whatever already scores well.
+   *
+   * SAVED/DISMISSED jobs are pulled out of the pool before capping — they
+   * don't consume a batch slot, and once a job is saved or dismissed it's
+   * "set aside" and won't compete for a spot in future batches — but they're
+   * still appended to the returned array uncapped, since RecLab2.tsx derives
+   * all three boxes (Recommended/Saved/Dismissed) from this one array;
+   * capping them too would make older saved/dismissed jobs disappear from
+   * their boxes once they aged out of the top ranks.
+   *
+   * Novelty picks are chosen with a seed derived from the *set* of eligible
+   * remainder job ids (sorted, so only membership matters, not order) rather
+   * than Math.random(). That makes two calls close together — e.g. the
+   * page's own fetch and startSession()'s internal getRecommendedJobs() call
+   * a moment later — return the identical batch as long as the underlying
+   * pool hasn't actually changed (nothing freshly saved/dismissed/
+   * interacted-with). Without that, a session's startSnapshot could
+   * disagree with what the user is actually looking at on screen, silently
+   * corrupting the position-based metrics.
+   */
+  private async applyBatchCap(userId: string, ordered: RecLab2RankedJob[]): Promise<RecLab2RankedJob[]> {
+    const reservedRows = await this.prisma.recLab2Interaction.findMany({
+      where: { userId, type: { in: ['SAVED', 'DISMISSED'] as any } },
+      select: { jobId: true },
+    });
+    const reservedJobIds = new Set(reservedRows.map(r => r.jobId));
+
+    const pool: RecLab2RankedJob[] = [];
+    const reserved: RecLab2RankedJob[] = [];
+    for (const item of ordered) {
+      (reservedJobIds.has(item.job.id) ? reserved : pool).push(item);
+    }
+
+    const top = pool.slice(0, TOP_PICKS);
+    const remainder = pool.slice(TOP_PICKS);
+    const noveltySeed = remainder.map(r => r.job.id).sort().join(',');
+    const novelty = pickRandomSubset(remainder, NOVELTY_PICKS, noveltySeed).map(r => ({ ...r, isNovelty: true }));
+
+    return [...top, ...novelty, ...reserved];
   }
 
   /**
@@ -640,9 +696,22 @@ export class RecLab2Service {
     return history;
   }
 
+  /**
+   * Wipes both the caller's Rec Lab 2 interactions AND their session
+   * history — the "reset scores" button. Sessions are included because
+   * their metrics (avgTopFiveScoreChange, first-positive/most-interacted
+   * position) are entirely derived from the interactions being deleted;
+   * leaving them behind would strand stale, now-meaningless rows on the
+   * Metrics screen. This is also the easiest way to clear out any sessions
+   * created by the onScroll double-fire bug (fixed in RecLab2.tsx's
+   * ensureSession) — hit this button once to start the Metrics graphs clean.
+   */
   async resetInteractions(clerkId: string): Promise<{ success: true }> {
     const userId = await this.userService.ensureUser(clerkId);
-    await this.prisma.recLab2Interaction.deleteMany({ where: { userId } });
+    await this.prisma.$transaction([
+      this.prisma.recLab2Interaction.deleteMany({ where: { userId } }),
+      this.prisma.recLab2Session.deleteMany({ where: { userId } }),
+    ]);
     return { success: true };
   }
 
@@ -806,6 +875,47 @@ export class RecLab2Service {
 function recLab2WeightFor(type: InteractionType): number {
   if (type === 'VIEWED') return 1;
   return weightFor(type);
+}
+
+/**
+ * Deterministic string -> 32-bit seed hash (FNV-1a) feeding mulberry32
+ * below — together these give a seeded PRNG from a plain string, so the
+ * same input set always produces the same "random" picks. See
+ * applyBatchCap's novelty-selection comment for why that matters here.
+ */
+function hashSeed(input: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/** Small, fast seeded PRNG (mulberry32) — good enough for picking a handful of novelty jobs, not for anything security-sensitive. */
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return function random() {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Picks `count` random (seeded) elements out of `items` without replacement, order-independent — used for novelty picks. Returns all of `items` if there aren't more than `count`. */
+function pickRandomSubset<T>(items: T[], count: number, seed: string): T[] {
+  if (items.length <= count) return [...items];
+  const rand = mulberry32(hashSeed(seed));
+  const pool = [...items];
+  const picks: T[] = [];
+  for (let i = 0; i < count; i++) {
+    const idx = Math.floor(rand() * pool.length);
+    picks.push(pool[idx]);
+    pool.splice(idx, 1);
+  }
+  return picks;
 }
 
 /** Reorders `scored` to match `order` (a list of job ids). Anything in `scored` that isn't in `order` — e.g. a job embedded after the last sort — is appended at the end, in whatever order it was already in. */
