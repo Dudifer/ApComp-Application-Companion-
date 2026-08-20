@@ -11,6 +11,8 @@ import { useApi, getCachedToken, BASE_URL } from '../lib/api';
 interface RankedJob {
   job: Job;
   similarity: number | null;
+  /** True for one of the 4 wildcard slots pulled from outside the top-ranked batch — see the API's applyBatchCap. */
+  isNovelty?: boolean;
 }
 
 /** Mirrors the API's RecLab2InteractionRecord. */
@@ -146,16 +148,27 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   const sessionIdRef = useRef<string | null>(null);
   const setSession = (id: string | null) => { sessionIdRef.current = id; setSessionId(id); };
 
+  // Guards against a burst of ensureSession() calls (a scroll event fires
+  // repeatedly — dozens of times for one drag, more if the box is
+  // rendering slowly) all racing to start a session before the first
+  // POST /sessions/start resolves and sessionIdRef gets set. Without this,
+  // each of those calls sees sessionIdRef.current still null and kicks off
+  // its own session-start request, which is exactly what was producing a
+  // pile of near-empty sessions per real browsing session.
+  const startingSessionRef = useRef(false);
+
   // Starts a session on first focus into the Recommended box (click or
-  // scroll) — a no-op if one's already running. Best-effort: if it hasn't
-  // resolved yet, the interaction that triggered it just goes unattributed
-  // to a session rather than blocking the click.
+  // scroll) — a no-op if one's already running or already being started.
+  // Best-effort: if it hasn't resolved yet, the interaction that triggered
+  // it just goes unattributed to a session rather than blocking the click.
   const ensureSession = useCallback(() => {
-    if (sessionIdRef.current) return;
+    if (sessionIdRef.current || startingSessionRef.current) return;
+    startingSessionRef.current = true;
     api.post('/rec-lab2/sessions/start')
       .then(r => { if (!r.ok) throw new Error(`Failed to start session (${r.status})`); return r.json(); })
       .then(data => setSession(data.id))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { startingSessionRef.current = false; });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -448,12 +461,15 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   };
 
   const handleResetScores = () => {
-    if (!window.confirm('Clear all Rec Lab 2 interaction history? This can\'t be undone.')) return;
+    if (!window.confirm('Clear all Rec Lab 2 interaction history and session metrics? This can\'t be undone.')) return;
     api.post('/rec-lab2/interactions/reset', {})
       .then(() => {
         setHistory([]);
         setActiveInteractions({}); // reset wipes every row's DB interactions, so no button should still show as toggled on
+        setSessions([]); // the backend also wipes session rows now, since their metrics are derived from the interactions just deleted
+        setSession(null); // any in-progress session got wiped too — the next click/scroll should start a fresh one
         if (showHistory) fetchHistory();
+        if (showMetrics) fetchSessions();
       })
       .catch(err => alert(err.message ?? 'Failed to reset interaction history'));
   };
@@ -510,11 +526,12 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
   const savedList = recommended.filter(r => jobBoxOf(r.job.id) === 'saved');
   const dismissedList = recommended.filter(r => jobBoxOf(r.job.id) === 'dismissed');
 
-  const renderJobRow = ({ job, similarity }: RankedJob) => (
+  const renderJobRow = ({ job, similarity, isNovelty }: RankedJob) => (
     <JobRow
       key={job.id}
       job={job}
       similarity={similarity}
+      isNovelty={isNovelty}
       compareMode={compareMode}
       isSelected={compareMode && selectedIds.includes(job.id)}
       clickable={compareMode || Boolean(onJobSelect)}
@@ -903,10 +920,11 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
 
 /** One job row — shared by the Recommended/Saved/Dismissed boxes so all three render identically (title, CV-match badge, and the 👍/👎/♡/✕ toggle buttons) instead of tripling the same JSX per box. */
 function JobRow({
-  job, similarity, compareMode, isSelected, clickable, activeInteractions, onRowClick, onToggleInteraction,
+  job, similarity, isNovelty, compareMode, isSelected, clickable, activeInteractions, onRowClick, onToggleInteraction,
 }: {
   job: Job;
   similarity: number | null;
+  isNovelty?: boolean;
   compareMode: boolean;
   isSelected: boolean;
   clickable: boolean;
@@ -930,18 +948,32 @@ function JobRow({
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{job.title}</div>
-        {typeof similarity === 'number' && (
-          <span
-            style={{
-              fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
-              padding: '2px 8px', borderRadius: 99,
-              background: isSelected ? 'var(--green)' : 'var(--accent-light)',
-              color: isSelected ? 'white' : 'var(--accent)',
-            }}
-          >
-            {similarity}% match
-          </span>
-        )}
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          {isNovelty && (
+            <span
+              title="A wildcard pick from outside your top-ranked jobs, for variety"
+              style={{
+                fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+                padding: '2px 8px', borderRadius: 99,
+                background: 'var(--amber-light)', color: 'var(--amber)',
+              }}
+            >
+              ✦ Novelty
+            </span>
+          )}
+          {typeof similarity === 'number' && (
+            <span
+              style={{
+                fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap',
+                padding: '2px 8px', borderRadius: 99,
+                background: isSelected ? 'var(--green)' : 'var(--accent-light)',
+                color: isSelected ? 'white' : 'var(--accent)',
+              }}
+            >
+              {similarity}% match
+            </span>
+          )}
+        </div>
       </div>
       <div style={{ fontSize: 12, color: 'var(--ink-tertiary)', marginTop: 2 }}>
         {job.company}{job.location?.displayName ? ` · ${job.location.displayName}` : ''}
