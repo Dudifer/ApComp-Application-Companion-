@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import type { Job, CvProfile, InteractionType } from '@apcomp/types';
 import { PrismaService } from '../prisma/prisma.service';
 import { UserService } from '../../auth/user.service';
@@ -94,6 +94,22 @@ export interface RecLab2SessionSummary {
   avgTopFiveScoreChange: number | null;
   firstPositivePosition: number | null;
   mostInteractedPosition: number | null;
+}
+
+/** One session's headline metrics recomputed under the CURRENT scoring/propagation code (see RecLab2Service.replaySession/replayAllSessions), alongside what was actually recorded at the time — for the Metrics screen's "replay with current formula" comparison. */
+export interface RecLab2SessionReplay {
+  sessionId: string;
+  sessionNumber: number;
+  original: {
+    avgTopFiveScoreChange: number | null;
+    firstPositivePosition: number | null;
+    mostInteractedPosition: number | null;
+  };
+  replayed: {
+    avgTopFiveScoreChange: number | null;
+    firstPositivePosition: number | null;
+    mostInteractedPosition: number | null;
+  };
 }
 
 // The 4 row buttons (👍/👎/♡/✕) are the only interaction types that behave
@@ -243,6 +259,11 @@ export class RecLab2Service {
    * interacted-with). Without that, a session's startSnapshot could
    * disagree with what the user is actually looking at on screen, silently
    * corrupting the position-based metrics.
+   *
+   * The 4 picks aren't tacked on at the end — they're interleaved every 5th
+   * slot (positions 5/10/15/20) via interleaveEvery, so novelty is spread
+   * through the whole Recommended box regardless of score or CV similarity,
+   * rather than clustered where a user might never scroll to.
    */
   private async applyBatchCap(userId: string, ordered: RecLab2RankedJob[]): Promise<RecLab2RankedJob[]> {
     const reservedRows = await this.prisma.recLab2Interaction.findMany({
@@ -262,7 +283,7 @@ export class RecLab2Service {
     const noveltySeed = remainder.map(r => r.job.id).sort().join(',');
     const novelty = pickRandomSubset(remainder, NOVELTY_PICKS, noveltySeed).map(r => ({ ...r, isNovelty: true }));
 
-    return [...top, ...novelty, ...reserved];
+    return [...interleaveEvery(top, novelty, 5), ...reserved];
   }
 
   /**
@@ -839,6 +860,194 @@ export class RecLab2Service {
     return rows.map(r => this.toSessionSummary(r));
   }
 
+  /**
+   * Single-session replay — same computation as replayAllSessions, scoped to
+   * one session. Fetches its own copy of interactions/embeddings rather than
+   * sharing replayAllSessions' batch, since this is meant for an ad-hoc "just
+   * this one" check rather than the Metrics screen's whole-graph overlay.
+   */
+  async replaySession(clerkId: string, sessionId: string): Promise<RecLab2SessionReplay> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const session = await this.prisma.recLab2Session.findUnique({ where: { id: sessionId } });
+    if (!session) throw new NotFoundException('Session not found');
+    if (session.userId !== userId) throw new ForbiddenException();
+    if (!session.endedAt) throw new BadRequestException('Session has not ended yet — nothing to replay.');
+
+    const [allInteractions, allTestJobs, compositeByJobId] = await this.loadReplayInputs(userId);
+    return this.replayOne(session, allInteractions, allTestJobs, compositeByJobId);
+  }
+
+  /**
+   * Replays every ended session's metrics under the CURRENT scoring/
+   * propagation code — feeds the Metrics screen's "replay with current
+   * formula" overlay, so tweaking a weight in scoring.ts and coming back
+   * here shows what each past session's numbers *would* have been, without
+   * needing to re-click through the actual jobs again. One shared fetch of
+   * interactions/embeddings for every session, instead of N round-trips.
+   */
+  async replayAllSessions(clerkId: string): Promise<RecLab2SessionReplay[]> {
+    const userId = await this.userService.ensureUser(clerkId);
+    const sessions = await this.prisma.recLab2Session.findMany({
+      where: { userId, endedAt: { not: null } },
+      orderBy: { sessionNumber: 'asc' },
+    });
+    if (!sessions.length) return [];
+
+    const [allInteractions, allTestJobs, compositeByJobId] = await this.loadReplayInputs(userId);
+    return sessions.map(session => this.replayOne(session, allInteractions, allTestJobs, compositeByJobId));
+  }
+
+  /** Shared setup for replaySession/replayAllSessions — every one of the user's Rec Lab 2 interactions (not just one session's) plus every TEST_DATASET job's composite embedding, both needed to recompute "score as of timestamp T" for an arbitrary past moment. */
+  private async loadReplayInputs(userId: string): Promise<[any[], Job[], Map<string, number[]>]> {
+    const allInteractions = await this.prisma.recLab2Interaction.findMany({ where: { userId } });
+    const allTestJobs = TEST_DATASET.map(row => catalogRowToJob(row));
+    const embeddingRows = await this.prisma.jobEmbedding.findMany({
+      where: { jobId: { in: allTestJobs.map(j => j.id) } },
+    });
+    const compositeByJobId = new Map(
+      embeddingRows.map(row => [row.jobId, compositeEmbedding({ title: row.titleEmbedding, description: row.descriptionEmbedding })]),
+    );
+    return [allInteractions, allTestJobs, compositeByJobId];
+  }
+
+  /**
+   * The actual before/after comparison for one session. `positions` stay
+   * frozen from the session's original startSnapshot — that's a historical
+   * fact of what the user was actually looking at, and shouldn't shift just
+   * because today's formula would rank things differently. What *can*
+   * change under replay:
+   *  - avgTopFiveScoreChange: the original top-5 jobs' scores, recomputed as
+   *    of the session's real start/end timestamps (not "now" — see
+   *    computeScoresAsOf) using the CURRENT weight table + propagation math.
+   *  - firstPositivePosition: re-evaluated against the CURRENT weight table,
+   *    since a tweak that flips a type's sign changes which interaction (if
+   *    any) counts as the first positive one.
+   * mostInteractedPosition is included for a complete side-by-side, but it's
+   * pure interaction-count — formula-independent — so it's always identical
+   * to the original.
+   */
+  private replayOne(
+    session: { id: string; sessionNumber: number; startedAt: Date; endedAt: Date | null; startSnapshot: unknown; avgTopFiveScoreChange: number | null; firstPositivePosition: number | null; mostInteractedPosition: number | null },
+    allInteractions: any[],
+    allTestJobs: Job[],
+    compositeByJobId: Map<string, number[]>,
+  ): RecLab2SessionReplay {
+    const endedAt = session.endedAt ?? session.startedAt;
+    const snapshot = Array.isArray(session.startSnapshot) ? (session.startSnapshot as unknown as SessionSnapshotEntry[]) : [];
+    const snapshotByJobId = new Map(snapshot.map(s => [s.jobId, s]));
+    const topFive = snapshot.filter(s => s.position < 5);
+
+    const scoresAtStart = this.computeScoresAsOf(allTestJobs, compositeByJobId, allInteractions, session.startedAt);
+    const scoresAtEnd = this.computeScoresAsOf(allTestJobs, compositeByJobId, allInteractions, endedAt);
+
+    const replayedAvgTopFiveScoreChange = topFive.length
+      ? topFive.reduce((sum, s) => sum + ((scoresAtEnd.get(s.jobId) ?? 0) - (scoresAtStart.get(s.jobId) ?? 0)), 0) / topFive.length
+      : null;
+
+    const sessionInteractions = allInteractions
+      .filter(i => i.sessionId === session.id)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+    let replayedFirstPositivePosition: number | null = null;
+    const firstPositive = sessionInteractions.find(i => recLab2WeightFor(i.type as InteractionType) > 0);
+    if (firstPositive) {
+      replayedFirstPositivePosition = snapshotByJobId.get(firstPositive.jobId)?.position ?? null;
+    }
+
+    let replayedMostInteractedPosition: number | null = null;
+    if (sessionInteractions.length) {
+      const countByJobId = new Map<string, number>();
+      for (const i of sessionInteractions) countByJobId.set(i.jobId, (countByJobId.get(i.jobId) ?? 0) + 1);
+      let bestJobId: string | null = null;
+      let bestCount = 0;
+      for (const i of sessionInteractions) {
+        const count = countByJobId.get(i.jobId)!;
+        if (count > bestCount) { bestCount = count; bestJobId = i.jobId; }
+      }
+      replayedMostInteractedPosition = bestJobId ? snapshotByJobId.get(bestJobId)?.position ?? null : null;
+    }
+
+    return {
+      sessionId: session.id,
+      sessionNumber: session.sessionNumber,
+      original: {
+        avgTopFiveScoreChange: session.avgTopFiveScoreChange ?? null,
+        firstPositivePosition: session.firstPositivePosition ?? null,
+        mostInteractedPosition: session.mostInteractedPosition ?? null,
+      },
+      replayed: {
+        avgTopFiveScoreChange: replayedAvgTopFiveScoreChange,
+        firstPositivePosition: replayedFirstPositivePosition,
+        mostInteractedPosition: replayedMostInteractedPosition,
+      },
+    };
+  }
+
+  /**
+   * Every TEST_DATASET job's score (direct + propagated) as it stood at
+   * `asOf`, not "now" — the historical snapshot replayOne needs to isolate a
+   * scoring/propagation formula change from the passage of real time itself.
+   * Two things distinguish this from computeAllJobScores' live version:
+   *  1. Only interactions with createdAt <= asOf count at all — anything
+   *     logged after that moment hadn't happened yet.
+   *  2. Decay is computed relative to asOf, not real "now" — otherwise an
+   *     old session's replayed scores would keep drifting every time you
+   *     reopen the Metrics screen, purely from more real time elapsing,
+   *     which has nothing to do with the formula being tested.
+   * Also deliberately re-derives each interaction's weight from its `type`
+   * via the CURRENT recLab2WeightFor(), rather than trusting the historical
+   * `weight` column that row was created with — that's what lets tweaking
+   * INTERACTION_WEIGHTS actually show up in a replay. (Live, non-replay
+   * scoring elsewhere in this file intentionally keeps using the frozen
+   * `weight` column instead — see updateInteraction's comment on why.)
+   */
+  private computeScoresAsOf(
+    allTestJobs: Job[],
+    compositeByJobId: Map<string, number[]>,
+    interactions: any[],
+    asOf: Date,
+  ): Map<string, number> {
+    const relevant = interactions.filter(i => i.createdAt.getTime() <= asOf.getTime());
+
+    const byJob = new Map<string, typeof relevant>();
+    for (const row of relevant) {
+      const list = byJob.get(row.jobId) ?? [];
+      list.push(row);
+      byJob.set(row.jobId, list);
+    }
+    const directScores = new Map<string, number>();
+    for (const [jobId, jobRows] of byJob) {
+      directScores.set(jobId, aggregateInteractionScore(
+        jobRows.map(r => ({ weight: recLab2WeightFor(r.type as InteractionType), createdAt: r.createdAt })),
+        { decay: true, now: asOf },
+      ));
+    }
+
+    const sourceEvents: PropagationSourceEvent[] = relevant
+      .map(row => ({
+        jobId: row.jobId,
+        jobTitle: row.jobTitle,
+        jobCompany: row.jobCompany ?? undefined,
+        type: row.type as InteractionType,
+        weight: recLab2WeightFor(row.type as InteractionType),
+        createdAt: row.createdAt,
+        composite: compositeByJobId.get(row.jobId) ?? [],
+      }))
+      .filter(e => e.composite.length > 0);
+
+    const scores = new Map<string, number>();
+    for (const job of allTestJobs) {
+      const targetComposite = compositeByJobId.get(job.id) ?? [];
+      const direct = directScores.get(job.id) ?? 0;
+      const otherEvents = sourceEvents.filter(e => e.jobId !== job.id);
+      const propagated = targetComposite.length
+        ? computePropagatedContributions(targetComposite, otherEvents, { decay: true, now: asOf }).reduce((sum, c) => sum + c.amount, 0)
+        : 0;
+      scores.set(job.id, direct + propagated);
+    }
+    return scores;
+  }
+
   private toSessionSummary(row: any): RecLab2SessionSummary {
     return {
       id: row.id,
@@ -902,6 +1111,33 @@ function mulberry32(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/**
+ * Merges `primary` and `filler` so every `every`-th slot (5, 10, 15...,
+ * 1-indexed) is a `filler` item and everything else is `primary`, in each
+ * array's own existing order — used to spread novelty picks evenly through
+ * the Recommended box rather than bunching them at the end. If `filler`
+ * runs out early the rest is pure `primary`; if `primary` runs out early
+ * (shouldn't normally happen given TOP_PICKS/NOVELTY_PICKS/5 line up
+ * exactly) any remaining `filler` items are appended so nothing's dropped.
+ */
+function interleaveEvery<T>(primary: T[], filler: T[], every: number): T[] {
+  const result: T[] = [];
+  let primaryIdx = 0;
+  let fillerIdx = 0;
+  let position = 0;
+  while (primaryIdx < primary.length || fillerIdx < filler.length) {
+    position++;
+    if (position % every === 0 && fillerIdx < filler.length) {
+      result.push(filler[fillerIdx++]);
+    } else if (primaryIdx < primary.length) {
+      result.push(primary[primaryIdx++]);
+    } else {
+      result.push(filler[fillerIdx++]);
+    }
+  }
+  return result;
 }
 
 /** Picks `count` random (seeded) elements out of `items` without replacement, order-independent — used for novelty picks. Returns all of `items` if there aren't more than `count`. */

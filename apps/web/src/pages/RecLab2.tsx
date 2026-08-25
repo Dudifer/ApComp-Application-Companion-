@@ -72,6 +72,22 @@ interface SessionSummary {
   mostInteractedPosition: number | null;
 }
 
+/** Mirrors the API's RecLab2SessionReplay — one session's metrics recomputed under whatever scoring/propagation code is live right now, alongside what was actually recorded at the time. */
+interface SessionReplaySummary {
+  sessionId: string;
+  sessionNumber: number;
+  original: {
+    avgTopFiveScoreChange: number | null;
+    firstPositivePosition: number | null;
+    mostInteractedPosition: number | null;
+  };
+  replayed: {
+    avgTopFiveScoreChange: number | null;
+    firstPositivePosition: number | null;
+    mostInteractedPosition: number | null;
+  };
+}
+
 const REDUCTION_METHODS = [
   { key: 'pca', label: 'PCA' },
   { key: 'umap', label: 'UMAP' },
@@ -468,6 +484,7 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
         setActiveInteractions({}); // reset wipes every row's DB interactions, so no button should still show as toggled on
         setSessions([]); // the backend also wipes session rows now, since their metrics are derived from the interactions just deleted
         setSession(null); // any in-progress session got wiped too — the next click/scroll should start a fresh one
+        setReplaySessions(null); // stale replay numbers reference interactions that no longer exist — refetch lazily next time replay is toggled on
         if (showHistory) fetchHistory();
         if (showMetrics) fetchSessions();
       })
@@ -501,6 +518,43 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
       return next;
     });
   };
+
+  // "Replay with current formula" — recomputes every session's metrics
+  // using whatever scoring.ts constants (weights, propagation threshold/
+  // fraction) are live right now, so a backend tweak's effect on past
+  // sessions can be checked without re-clicking through the actual jobs.
+  // Fetched once per Metrics screen visit (lazily, on first toggle-on), not
+  // kept in perfect sync with `sessions` afterward — a stale replay next to
+  // a freshly-reset session list is a harmless mismatch, and toggling off
+  // and back on (or reopening Metrics) refetches it.
+  const [showReplay, setShowReplay] = useState(false);
+  const [replaySessions, setReplaySessions] = useState<SessionReplaySummary[] | null>(null);
+  const [replayLoading, setReplayLoading] = useState(false);
+  const [replayError, setReplayError] = useState<string | null>(null);
+
+  const fetchReplay = useCallback(() => {
+    setReplayLoading(true);
+    setReplayError(null);
+    api.get('/rec-lab2/sessions/replay')
+      .then(r => {
+        if (!r.ok) throw new Error(`Failed to replay sessions (${r.status})`);
+        return r.json();
+      })
+      .then(data => setReplaySessions(Array.isArray(data) ? data : []))
+      .catch(err => setReplayError(err.message ?? 'Failed to replay sessions'))
+      .finally(() => setReplayLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleReplay = () => {
+    setShowReplay(prev => {
+      const next = !prev;
+      if (next && !replaySessions) fetchReplay();
+      return next;
+    });
+  };
+
+  const replayBySessionNumber = new Map((replaySessions ?? []).map(r => [r.sessionNumber, r]));
 
   // "Refresh box" — ends the in-progress session (so it gets scored and
   // shows up on the Metrics screen), re-fetches the ranking (picking up any
@@ -814,24 +868,59 @@ export default function RecLab2Page({ onJobSelect }: { onJobSelect?: (job: Job) 
             <Empty>No completed sessions yet — click or scroll in Recommended Jobs, then hit "Refresh box" (or navigate away) to close out a session.</Empty>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-tertiary)' }}>
+                  {showReplay && 'Dashed lines: what each session\'s metrics would be under the scoring/propagation code running right now.'}
+                </div>
+                <button
+                  onClick={toggleReplay}
+                  disabled={replayLoading}
+                  title="Recompute every session's metrics using whatever's currently in scoring.ts, to see the effect of a formula tweak without re-clicking through the jobs"
+                  style={{
+                    fontSize: 12, fontWeight: 500, padding: '6px 12px', borderRadius: 999,
+                    border: `1px solid ${showReplay ? 'var(--accent)' : 'var(--border)'}`,
+                    background: showReplay ? 'var(--accent-light)' : 'white',
+                    color: showReplay ? 'var(--accent)' : 'var(--ink-secondary)',
+                    cursor: replayLoading ? 'default' : 'pointer', fontFamily: 'var(--font-body)',
+                  }}
+                >
+                  {replayLoading ? 'Replaying…' : showReplay ? '✕ Hide replay' : '↺ Replay with current formula'}
+                </button>
+              </div>
+              {showReplay && replayError && <Empty tone="error">{replayError}</Empty>}
               <MetricChart
                 title="Top-5 Recommendation Score Lift"
                 subtitle="Avg. score change across the first 5 recommended jobs, start to end of session"
-                data={sessions.map(s => ({ sessionNumber: s.sessionNumber, value: s.avgTopFiveScoreChange }))}
+                data={sessions.map(s => ({
+                  sessionNumber: s.sessionNumber,
+                  value: s.avgTopFiveScoreChange,
+                  replayedValue: replayBySessionNumber.get(s.sessionNumber)?.replayed.avgTopFiveScoreChange ?? null,
+                }))}
                 color="var(--blue)"
+                replayColor={showReplay ? 'var(--accent)' : undefined}
               />
               <MetricChart
                 title="First Positive-Signal Position"
                 subtitle="Rank of the earliest job in the session with a positive interaction"
-                data={sessions.map(s => ({ sessionNumber: s.sessionNumber, value: s.firstPositivePosition }))}
+                data={sessions.map(s => ({
+                  sessionNumber: s.sessionNumber,
+                  value: s.firstPositivePosition,
+                  replayedValue: replayBySessionNumber.get(s.sessionNumber)?.replayed.firstPositivePosition ?? null,
+                }))}
                 color="var(--green)"
+                replayColor={showReplay ? 'var(--accent)' : undefined}
                 reversed
               />
               <MetricChart
                 title="Most-Engaged Job Position"
                 subtitle="Rank of the job with the most interactions during the session"
-                data={sessions.map(s => ({ sessionNumber: s.sessionNumber, value: s.mostInteractedPosition }))}
+                data={sessions.map(s => ({
+                  sessionNumber: s.sessionNumber,
+                  value: s.mostInteractedPosition,
+                  replayedValue: replayBySessionNumber.get(s.sessionNumber)?.replayed.mostInteractedPosition ?? null,
+                }))}
                 color="var(--accent)"
+                replayColor={showReplay ? 'var(--ink-tertiary)' : undefined}
                 reversed
               />
             </div>
@@ -1108,15 +1197,21 @@ function EmbeddingTooltip({ active, payload }: any) {
  * `value: null` sessions (e.g. no positive interaction that session) leave
  * a gap rather than plotting as 0, which would misleadingly read as "top
  * position."
+ *
+ * `replayColor` is optional — when set, a second dashed line plots each
+ * point's `replayedValue` (what the metric would be under whatever scoring/
+ * propagation code is live right now — see the API's replayAllSessions),
+ * so the two lines can be visually compared session-by-session.
  */
 function MetricChart({
-  title, subtitle, data, color, reversed,
+  title, subtitle, data, color, reversed, replayColor,
 }: {
   title: string;
   subtitle: string;
-  data: { sessionNumber: number; value: number | null }[];
+  data: { sessionNumber: number; value: number | null; replayedValue?: number | null }[];
   color: string;
   reversed?: boolean;
+  replayColor?: string;
 }) {
   return (
     <div>
@@ -1143,11 +1238,17 @@ function MetricChart({
               width={36}
             />
             <Tooltip
-              formatter={(value: number) => [value, title]}
               labelFormatter={(label: number) => `Session ${label}`}
               contentStyle={{ fontSize: 12, borderRadius: 8 }}
             />
-            <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            {replayColor && <Legend wrapperStyle={{ fontSize: 11 }} />}
+            <Line type="monotone" dataKey="value" name="Recorded" stroke={color} strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            {replayColor && (
+              <Line
+                type="monotone" dataKey="replayedValue" name="Replayed (current formula)"
+                stroke={replayColor} strokeWidth={2} strokeDasharray="5 4" dot={{ r: 2 }} connectNulls
+              />
+            )}
           </LineChart>
         </ResponsiveContainer>
       </div>

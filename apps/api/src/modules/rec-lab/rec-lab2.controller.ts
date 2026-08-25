@@ -91,4 +91,16 @@ export class RecLab2Controller extends AuthenticatedController {
   listSessions(@Req() req: any) {
     return this.recLab2.listSessions(req.userId);
   }
+
+  /** Bulk replay — every ended session's metrics recomputed under the CURRENT scoring/propagation code (weightFor + propagation constants in scoring.ts), alongside what was actually recorded. Feeds the Metrics screen's "replay with current formula" overlay. Declared before the single-session route below since 'replay' would otherwise never be reachable as a literal segment if Nest matched ':id' first for a 2-segment path — moot here since the two routes have different segment counts, but keeping the more specific literal route first regardless. */
+  @Get('sessions/replay')
+  replayAllSessions(@Req() req: any) {
+    return this.recLab2.replayAllSessions(req.userId);
+  }
+
+  /** Single-session replay — same computation as above, scoped to one ended session. */
+  @Get('sessions/:id/replay')
+  replaySession(@Req() req: any, @Param('id') id: string) {
+    return this.recLab2.replaySession(req.userId, id);
+  }
 }
